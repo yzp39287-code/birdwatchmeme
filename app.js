@@ -14,7 +14,7 @@ function isAdmin(){return session?.user?.user_metadata?.user_name===cfg.adminGit
 function render(){
  const visible=active==="全部"?memes:memes.filter(m=>m.category===active);
  $("#sectionTitle").textContent=`${active}分区`;$("#itemCount").textContent=`${visible.length} 张`;$("#count").textContent=memes.length;$("#empty").classList.toggle("hidden",visible.length>0);
- grid.innerHTML=visible.map(m=>`<article class="card"><div class="photo ${m.starter?`starter ${m.starter}`:""}"><img src="${m.starter?"birds.jpg":escapeHtml(m.image_url)}" alt="${escapeHtml(m.title)}"><span class="chip">${escapeHtml(m.category)}</span></div><div class="copy"><h3>${escapeHtml(m.title)}</h3><p>${escapeHtml(m.caption)}</p></div></article>`).join("");
+ grid.innerHTML=visible.map(m=>`<article class="card"><div class="photo ${m.starter?`starter ${m.starter}`:""}"><img src="${m.starter?(window.BIRDS_IMAGE||"birds.jpg"):escapeHtml(m.image_url)}" alt="${escapeHtml(m.title)}"><span class="chip">${escapeHtml(m.category)}</span></div><div class="copy"><h3>${escapeHtml(m.title)}</h3><p>${escapeHtml(m.caption)}</p></div></article>`).join("");
  uploadBtn.classList.toggle("hidden",!isAdmin());logoutBtn.classList.toggle("hidden",!session);loginBtn.classList.toggle("hidden",!!session);
 }
 function escapeHtml(value){const d=document.createElement("div");d.textContent=String(value||"");return d.innerHTML}
