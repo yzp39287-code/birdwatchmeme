@@ -5,7 +5,7 @@ const client=configured?window.supabase.createClient(cfg.supabaseUrl,cfg.supabas
 let categories=["全部",...DEFAULT_CATEGORIES],memes=[],active="全部",session=null,loading=true;
 const $=s=>document.querySelector(s),grid=$("#grid"),loginBtn=$("#loginBtn"),logoutBtn=$("#logoutBtn"),uploadBtn=$("#uploadBtn"),uploadDialog=$("#uploadDialog"),uploadForm=$("#uploadForm"),editDialog=$("#editDialog"),editForm=$("#editForm"),categoryDialog=$("#categoryDialog"),categoryForm=$("#categoryForm");
 
-function isAdmin(){const m=session?.user?.user_metadata;return m?.user_name===cfg.adminGithubLogin||m?.preferred_username===cfg.adminGithubLogin}
+function isAdmin(){return session?.user?.id===cfg.adminUserId}
 function escapeHtml(value){const node=document.createElement("div");node.textContent=String(value||"");return node.innerHTML}
 function showNotice(message,kind="info"){const n=$("#notice");n.textContent=message;n.className=`notice ${kind}`;n.classList.remove("hidden");clearTimeout(showNotice.timer);showNotice.timer=setTimeout(()=>n.classList.add("hidden"),4200)}
 function render(){
@@ -44,7 +44,7 @@ loginBtn.onclick=async()=>{if(!client)return showNotice("网站管理员尚未�
 logoutBtn.onclick=async()=>{const {error}=await client?.auth.signOut();if(error)showNotice(`退出失败：${error.message}`,"error")};
 uploadBtn.onclick=()=>uploadDialog.showModal();$("#closeDialog").onclick=()=>uploadDialog.close();$("#closeEditDialog").onclick=()=>editDialog.close();$("#closeCategoryDialog").onclick=()=>categoryDialog.close();
 categoryForm.onsubmit=async e=>{
- e.preventDefault();const message=$("#categoryMessage"),button=categoryForm.querySelector("button[type=submit]"),name=categoryForm.name.value.trim();message.textContent="";
+ e.preventDefault();const message=$("#categoryMessage"),button=categoryForm.querySelector("button[type=submit]"),name=categoryForm.elements.name.value.trim();message.textContent="";
  if(!client||!isAdmin())return message.textContent="当前账号没有新增分区权限";
  if(!name||name.length>12||name==="全部")return message.textContent="请输入 1–12 个字的有效分区名称";
  if(categories.includes(name))return message.textContent="这个分区已经存在";
