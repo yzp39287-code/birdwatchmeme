@@ -5,7 +5,7 @@ const client=configured?window.supabase.createClient(cfg.supabaseUrl,cfg.supabas
 let memes=[],active="全部",session=null,loading=true;
 const $=s=>document.querySelector(s),grid=$("#grid"),loginBtn=$("#loginBtn"),logoutBtn=$("#logoutBtn"),uploadBtn=$("#uploadBtn"),uploadDialog=$("#uploadDialog"),uploadForm=$("#uploadForm"),editDialog=$("#editDialog"),editForm=$("#editForm");
 
-function isAdmin(){const m=session?.user?.user_metadata;return m?.user_name===cfg.adminGithubLogin||m?.preferred_username===cfg.adminGithubLogin}
+function isAdmin(){return session?.user?.id===cfg.adminUserId}
 function escapeHtml(value){const node=document.createElement("div");node.textContent=String(value||"");return node.innerHTML}
 function showNotice(message,kind="info"){const n=$("#notice");n.textContent=message;n.className=`notice ${kind}`;n.classList.remove("hidden");clearTimeout(showNotice.timer);showNotice.timer=setTimeout(()=>n.classList.add("hidden"),4200)}
 function render(){
