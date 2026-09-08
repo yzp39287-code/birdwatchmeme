@@ -9,3 +9,5 @@
 .notice.error{background:#9e342a}
 .notice.success{background:#285b3c}
 #editMessage{margin:0;color:#b42318;font-size:14px}
+.add-category{border-style:dashed;color:#285b3c;background:#eef3dd}
+#categoryMessage{margin:0;color:#b42318;font-size:14px}
