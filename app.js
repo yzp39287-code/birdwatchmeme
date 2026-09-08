@@ -1,11 +1,11 @@
-const CATEGORIES=["全部","珠颈斑鸠","夜鹭","鸦科","鸲类","其他"];
+const DEFAULT_CATEGORIES=["珠颈斑鸠","夜鹭","鸦科","鸲类","其他"];
 const cfg=window.BIRDMEME_CONFIG||{};
 const configured=Boolean(cfg.supabaseUrl&&!cfg.supabaseUrl.startsWith("YOUR_")&&cfg.supabaseAnonKey&&!cfg.supabaseAnonKey.startsWith("YOUR_")&&window.supabase);
 const client=configured?window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey):null;
-let memes=[],active="全部",session=null,loading=true;
-const $=s=>document.querySelector(s),grid=$("#grid"),loginBtn=$("#loginBtn"),logoutBtn=$("#logoutBtn"),uploadBtn=$("#uploadBtn"),uploadDialog=$("#uploadDialog"),uploadForm=$("#uploadForm"),editDialog=$("#editDialog"),editForm=$("#editForm");
+let categories=["全部",...DEFAULT_CATEGORIES],memes=[],active="全部",session=null,loading=true;
+const $=s=>document.querySelector(s),grid=$("#grid"),loginBtn=$("#loginBtn"),logoutBtn=$("#logoutBtn"),uploadBtn=$("#uploadBtn"),uploadDialog=$("#uploadDialog"),uploadForm=$("#uploadForm"),editDialog=$("#editDialog"),editForm=$("#editForm"),categoryDialog=$("#categoryDialog"),categoryForm=$("#categoryForm");
 
-function isAdmin(){return session?.user?.id===cfg.adminUserId}
+function isAdmin(){const m=session?.user?.user_metadata;return m?.user_name===cfg.adminGithubLogin||m?.preferred_username===cfg.adminGithubLogin}
 function escapeHtml(value){const node=document.createElement("div");node.textContent=String(value||"");return node.innerHTML}
 function showNotice(message,kind="info"){const n=$("#notice");n.textContent=message;n.className=`notice ${kind}`;n.classList.remove("hidden");clearTimeout(showNotice.timer);showNotice.timer=setTimeout(()=>n.classList.add("hidden"),4200)}
 function render(){
@@ -15,7 +15,22 @@ function render(){
  grid.innerHTML=visible.map(m=>`<article class="card" data-id="${escapeHtml(m.id)}"><div class="photo"><img src="${escapeHtml(m.image_url)}" alt="${escapeHtml(m.title)}" loading="lazy" decoding="async"><span class="chip">${escapeHtml(m.category)}</span></div><div class="copy"><h3>${escapeHtml(m.title)}</h3><p>${escapeHtml(m.caption)}</p>${isAdmin()?`<div class="card-actions"><button class="edit-button" type="button" data-action="edit">编辑</button><button class="delete-button" type="button" data-action="delete">删除</button></div>`:""}</div></article>`).join("");
  uploadBtn.classList.toggle("hidden",!isAdmin());logoutBtn.classList.toggle("hidden",!session);loginBtn.classList.toggle("hidden",Boolean(session));
 }
-function buildNav(){const nav=$("#categories");CATEGORIES.forEach(c=>{const b=document.createElement("button");b.textContent=c;b.className=c===active?"active":"";b.onclick=()=>{active=c;[...nav.children].forEach(x=>x.classList.toggle("active",x===b));render()};nav.appendChild(b)})}
+function syncCategorySelects(){
+ const options=categories.slice(1).map(c=>`<option>${escapeHtml(c)}</option>`).join("");
+ uploadForm.category.innerHTML=`<option value="">请选择</option>${options}`;
+ editForm.category.innerHTML=options;
+}
+function renderNav(){
+ const nav=$("#categories");nav.innerHTML="";
+ categories.forEach(c=>{const b=document.createElement("button");b.textContent=c;b.className=c===active?"active":"";b.onclick=()=>{active=c;renderNav();render()};nav.appendChild(b)});
+ if(isAdmin()){const add=document.createElement("button");add.type="button";add.className="add-category";add.textContent="＋ 增加分区";add.onclick=()=>{categoryForm.reset();$("#categoryMessage").textContent="";categoryDialog.showModal()};nav.appendChild(add)}
+}
+async function loadCategories(){
+ if(!client){syncCategorySelects();renderNav();return}
+ const {data,error}=await client.from("categories").select("name,sort_order").order("sort_order",{ascending:true});
+ if(!error&&data?.length)categories=["全部",...data.map(row=>row.name)];
+ syncCategorySelects();renderNav();
+}
 async function refreshMemes(){
  if(!client){loading=false;render();showNotice("网站数据服务尚未配置完成。","error");return}
  loading=true;render();
@@ -24,10 +39,21 @@ async function refreshMemes(){
  if(error){render();showNotice(`图片加载失败：${error.message}`,"error");$("#retryLoad").classList.remove("hidden");return}
  $("#retryLoad").classList.add("hidden");memes=data||[];render();
 }
-async function initialize(){if(!client){loading=false;render();return}const {data}=await client.auth.getSession();session=data.session;client.auth.onAuthStateChange((_e,next)=>{session=next;render()});await refreshMemes()}
+async function initialize(){if(!client){loading=false;syncCategorySelects();renderNav();render();return}const {data}=await client.auth.getSession();session=data.session;client.auth.onAuthStateChange((_e,next)=>{session=next;renderNav();render()});renderNav();await Promise.all([loadCategories(),refreshMemes()])}
 loginBtn.onclick=async()=>{if(!client)return showNotice("网站管理员尚未完成 Supabase 配置。","error");const {error}=await client.auth.signInWithOAuth({provider:"github",options:{redirectTo:new URL(".",location.href).href}});if(error)showNotice(`登录失败：${error.message}`,"error")};
 logoutBtn.onclick=async()=>{const {error}=await client?.auth.signOut();if(error)showNotice(`退出失败：${error.message}`,"error")};
-uploadBtn.onclick=()=>uploadDialog.showModal();$("#closeDialog").onclick=()=>uploadDialog.close();$("#closeEditDialog").onclick=()=>editDialog.close();
+uploadBtn.onclick=()=>uploadDialog.showModal();$("#closeDialog").onclick=()=>uploadDialog.close();$("#closeEditDialog").onclick=()=>editDialog.close();$("#closeCategoryDialog").onclick=()=>categoryDialog.close();
+categoryForm.onsubmit=async e=>{
+ e.preventDefault();const message=$("#categoryMessage"),button=categoryForm.querySelector("button[type=submit]"),name=categoryForm.name.value.trim();message.textContent="";
+ if(!client||!isAdmin())return message.textContent="当前账号没有新增分区权限";
+ if(!name||name.length>12||name==="全部")return message.textContent="请输入 1–12 个字的有效分区名称";
+ if(categories.includes(name))return message.textContent="这个分区已经存在";
+ button.disabled=true;button.textContent="添加中…";
+ const {data,error}=await client.from("categories").insert({name,sort_order:categories.length}).select().single();
+ button.disabled=false;button.textContent="添加分区";
+ if(error)return message.textContent=error.message||"添加失败";
+ categories.push(data.name);active=data.name;syncCategorySelects();renderNav();render();categoryDialog.close();showNotice(`“${data.name}”分区已添加。`,"success");
+};
 uploadForm.image.onchange=()=>{const f=uploadForm.image.files[0];if(f){$("#preview").src=URL.createObjectURL(f);$("#preview").classList.remove("hidden")}};
 uploadForm.onsubmit=async e=>{
  e.preventDefault();const message=$("#formMessage");message.textContent="";if(!client||!isAdmin())return message.textContent="当前账号没有上传权限";
@@ -58,4 +84,4 @@ editForm.onsubmit=async e=>{
  if(updated.error)return message.textContent=updated.error.message||"保存失败";
  const i=memes.findIndex(m=>m.id===updated.data.id);if(i>=0)memes[i]=updated.data;editDialog.close();render();showNotice("修改已保存。","success");
 };
-$("#retryLoad").onclick=refreshMemes;buildNav();render();initialize();
+$("#retryLoad").onclick=refreshMemes;renderNav();render();initialize();
