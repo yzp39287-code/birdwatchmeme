@@ -1,0 +1,11 @@
+.loading{background:#ffffff88}
+.empty,.loading{text-align:center;padding:80px;border:2px dashed #bcc9ae;border-radius:24px;color:#627064}
+.retry{display:block;margin:18px auto}
+.card-actions{display:flex;gap:9px;margin-top:17px;padding-top:14px;border-top:1px solid #e4e9df}
+.card-actions button{border:0;border-radius:9px;padding:8px 13px;font-weight:800;cursor:pointer}
+.edit-button{color:#285b3c;background:#e7edda}
+.delete-button{color:#a13226;background:#fae7e2}
+.notice{position:fixed;z-index:100;left:50%;bottom:28px;transform:translateX(-50%);max-width:min(520px,calc(100vw - 30px));padding:12px 18px;border-radius:12px;background:#263e2e;color:#fff;box-shadow:0 8px 30px #10201844;font-weight:700}
+.notice.error{background:#9e342a}
+.notice.success{background:#285b3c}
+#editMessage{margin:0;color:#b42318;font-size:14px}

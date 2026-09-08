@@ -4,17 +4,19 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>观鸟meme｜鸟类表情包收藏站</title>
   <meta name="description" content="浏览和收藏珠颈斑鸠、夜鹭、鸦科、鸲类等鸟类 meme。">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="admin.css">
 </head>
 <body>
   <header><a class="brand" href="#top"><span class="logo">◒</span>观鸟<span>meme</span></a><div class="actions"><button id="loginBtn" class="ghost">GitHub 登录</button><button id="uploadBtn" class="primary hidden">＋ 上传 meme</button><button id="logoutBtn" class="ghost hidden">退出</button></div></header>
   <main id="top">
-    <section class="hero"><div><p class="eyebrow">🪶 给认真观鸟的人，一点不正经</p><h1>鸟看得越久，<br><em>表情包越多。</em></h1><p class="intro">收集那些只有观鸟人才懂的瞬间。选一个分区逛逛，或者登录后投递你的神图。</p></div><div class="stamp"><b id="count">3</b><span>张野生 meme</span></div></section>
+    <section class="hero"><div><p class="eyebrow">🪶 给认真观鸟的人，一点不正经</p><h1>鸟看得越久，<br><em>表情包越多。</em></h1><p class="intro">收集那些只有观鸟人才懂的瞬间。选一个分区逛逛，或者登录后投递你的神图。</p></div><div class="stamp"><b id="count">…</b><span>张野生 meme</span></div></section>
     <nav id="categories" aria-label="鸟类分区"></nav>
-    <section class="gallery"><div class="heading"><div><small>正在浏览</small><h2 id="sectionTitle">全部分区</h2></div><span id="itemCount">3 张</span></div><div id="grid" class="grid"></div><div id="empty" class="empty hidden">这里还没有鸟落脚</div></section>
+    <section class="gallery"><div class="heading"><div><small>正在浏览</small><h2 id="sectionTitle">全部分区</h2></div><span id="itemCount">加载中…</span></div><div id="loading" class="loading">正在从鸟巢取回图片……</div><div id="grid" class="grid"></div><div id="empty" class="empty hidden">这里还没有鸟落脚</div><button id="retryLoad" class="retry ghost hidden" type="button">重新加载</button></section>
   </main>
   <footer><b>观鸟meme</b><span>文明观鸟，快乐玩梗 · 请勿打扰野生鸟类</span></footer>
   <dialog id="uploadDialog"><button class="close" id="closeDialog">×</button><h2>投递一只鸟</h2><p>只有管理员可以发布。支持 JPG、PNG、WebP 和 GIF，最大 8 MB。</p><form id="uploadForm"><label>图片<input name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required></label><img id="preview" class="preview hidden" alt="图片预览"><label>标题<input name="title" maxlength="40" placeholder="例如：夜鹭正在思考" required></label><label>配文<textarea name="caption" maxlength="120" placeholder="给这张图配一句话……" required></textarea></label><label>分区<select name="category" required><option value="">请选择</option><option>珠颈斑鸠</option><option>夜鹭</option><option>鸦科</option><option>鸲类</option><option>其他</option></select></label><p id="formMessage"></p><button class="primary" type="submit">发布 meme</button></form></dialog>
+  <dialog id="editDialog"><button class="close" id="closeEditDialog">×</button><h2>编辑 meme</h2><p>修改标题、配文或所属分区。</p><form id="editForm"><input name="id" type="hidden"><label>标题<input name="title" maxlength="40" required></label><label>配文<textarea name="caption" maxlength="120" required></textarea></label><label>分区<select name="category" required><option>珠颈斑鸠</option><option>夜鹭</option><option>鸦科</option><option>鸲类</option><option>其他</option></select></label><p id="editMessage"></p><button class="primary" type="submit">保存修改</button></form></dialog>
+  <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script src="birds.js"></script><script src="app.js"></script>
 </body>
 </html>
