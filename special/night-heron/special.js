@@ -1,5 +1,5 @@
 const cfg=window.BIRDMEME_CONFIG||{},client=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);
-let session=null,memes=[],entries=[],todayVote=null,loginEmail="";const $=s=>document.querySelector(s),grid=$("#grid");
+let session=null,memes=[],entries=[],todayVote=null;const $=s=>document.querySelector(s),grid=$("#grid");
 function admin(){return session?.user?.id===cfg.adminUserId}
 function esc(v){const d=document.createElement("div");d.textContent=String(v||"");return d.innerHTML}
 function bjDay(){return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date())}
@@ -19,10 +19,9 @@ async function load(){
 }
 async function loadRanking(){const {data,error}=await client.rpc("night_heron_leaderboard");if(error)return $("#ranking").innerHTML="<li>榜单尚未配置</li>";$("#ranking").innerHTML=(data||[]).map((r,i)=>`<li><b>${i+1}</b><span><strong>#${r.contest_number} ${esc(r.title)}</strong><small>${r.vote_count} 票</small></span></li>`).join("")||"<li>暂无参赛作品</li>"}
 grid.onclick=async e=>{const b=e.target.closest("[data-vote]");if(!b)return;if(!session){$("#loginDialog").showModal();return}if(todayVote)return notice("你今天已经投过票了","error");b.disabled=true;const id=b.dataset.vote,{error}=await client.from("night_heron_votes").insert({meme_id:id,user_id:session.user.id,vote_day:bjDay()});if(error){b.disabled=false;return notice(error.code==="23505"?"你今天已经投过票了":error.message,"error")}todayVote=id;render();await loadRanking();notice("投票成功，明天还可以再投一票")};
-$("#loginBtn").onclick=()=>{$("#loginMessage").textContent="";$("#emailForm").classList.remove("hidden");$("#otpForm").classList.add("hidden");$("#loginDialog").showModal()};
+$("#loginBtn").onclick=()=>{$("#loginMessage").textContent="";$("#loginDialog").showModal()};
 $("#closeLogin").onclick=()=>$("#loginDialog").close();
 $("#emailForm").onsubmit=async e=>{e.preventDefault();const b=e.currentTarget.querySelector("button"),email=e.currentTarget.elements.email.value.trim();b.disabled=true;const {error}=await client.auth.signInWithOtp({email,options:{shouldCreateUser:true}});b.disabled=false;if(error)return $("#loginMessage").textContent=error.message;loginEmail=email;$("#emailForm").classList.add("hidden");$("#otpForm").classList.remove("hidden");$("#loginMessage").textContent="验证码已发送，请检查收件箱和垃圾邮件。"};
-$("#otpForm").onsubmit=async e=>{e.preventDefault();const token=e.currentTarget.elements.token.value.trim(),{error}=await client.auth.verifyOtp({email:loginEmail,token,type:"email"});if(error)return $("#loginMessage").textContent=error.message;$("#loginDialog").close();notice("登录成功")};
 $("#githubLogin").onclick=async()=>{const {error}=await client.auth.signInWithOAuth({provider:"github",options:{redirectTo:new URL(".",location.href).href}});if(error)$("#loginMessage").textContent=error.message};
 $("#logoutBtn").onclick=()=>client.auth.signOut();
 $("#candidateGrid").onclick=async e=>{const b=e.target.closest("button");if(!b||!admin())return;const id=b.closest(".candidate").dataset.id,entry=entries.find(x=>x.meme_id===id);b.disabled=true;let q;if(entry)q=client.from("night_heron_contest_entries").delete().eq("meme_id",id);else{const number=entries.reduce((max,x)=>Math.max(max,x.contest_number),0)+1;q=client.from("night_heron_contest_entries").insert({meme_id:id,contest_number:number,created_by:session.user.id})}const {error}=await q;if(error){b.disabled=false;return notice(error.message,"error")}await load();notice(entry?"已移出专题":"已加入专题")};
