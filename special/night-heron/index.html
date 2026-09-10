@@ -1,6 +1,7 @@
 <!doctype html><html lang="zh-CN"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>夜鹭模仿大赛｜观鸟meme</title><meta name="description" content="观鸟meme特别企划：夜鹭模仿大赛。"><meta property="og:title" content="夜鹭模仿大赛｜观鸟meme"><meta property="og:description" content="登录后每天一票，选出最会模仿的夜鹭。"><meta property="og:image" content="https://yzp39287-code.github.io/birdwatchmeme/assets/night-heron-contest.png"><meta property="og:type" content="website">
+<link rel="canonical" href="https://yzp39287-code.github.io/birdwatchmeme/special/night-heron/">
 <link rel="icon" href="../../assets/birdwatch-logo.jpg"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../admin.css"><link rel="stylesheet" href="special.css">
 </head><body>
 <header><a class="brand" href="../../"><span class="logo"><img src="../../assets/birdwatch-logo.jpg" alt=""></span>观鸟<span>meme</span></a><div class="actions"><button id="loginBtn" class="ghost">登录投票</button><button id="logoutBtn" class="ghost hidden">退出</button></div></header>
@@ -13,7 +14,7 @@
  </div>
  <section id="manager" class="manager hidden"><div class="heading"><div><small>仅管理员可见</small><h2>比赛管理</h2></div></div><form id="contestSettings" class="settings-row"><label class="check-row"><input name="is_open" type="checkbox"> 开放投票</label><label>截止时间（可留空）<input name="ends_at" type="datetime-local"></label><button class="primary" type="submit">保存比赛设置</button></form><p>从“夜鹭”分区选择作品加入或移出专题；编号按加入顺序自动生成，主页卡片不会变化。</p><div id="candidateGrid" class="candidate-grid"></div></section>
 </main>
-<footer><b>观鸟meme</b><span>文明观鸟，快乐玩梗 · 请勿打扰野生鸟类</span></footer>
+<footer><b>观鸟meme</b><span>文明观鸟，快乐玩梗 · 请勿打扰野生鸟类</span><span class="footer-links"><a href="../../about.html">网站说明</a><a href="../../privacy.html">隐私与投稿</a><a href="https://github.com/yzp39287-code/birdwatchmeme/issues/new" target="_blank" rel="noopener">联系管理员／侵权删除</a></span></footer>
 <dialog id="loginDialog"><button class="close" id="closeLogin">×</button><h2>登录后投票</h2><p>普通用户使用邮箱登录链接；登录状态会保存在当前浏览器，每天限投一票。</p>
  <form id="emailForm"><label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label><button class="primary" type="submit">发送登录链接</button></form>
  <p id="loginMessage"></p><div class="admin-login"><span>网站管理员：</span><button id="githubLogin" class="ghost" type="button">使用 GitHub 登录</button></div>

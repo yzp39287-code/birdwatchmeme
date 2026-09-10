@@ -5,6 +5,7 @@
 .card-actions button{border:0;border-radius:9px;padding:8px 13px;font-weight:800;cursor:pointer}
 .edit-button{color:#285b3c;background:#e7edda}
 .delete-button{color:#a13226;background:#fae7e2}
+.console-shortcut{padding:8px 13px;border-radius:9px;background:#eef3dd;color:#285b3c;font-weight:800;text-decoration:none}
 .notice{position:fixed;z-index:100;left:50%;bottom:28px;transform:translateX(-50%);max-width:min(520px,calc(100vw - 30px));padding:12px 18px;border-radius:12px;background:#263e2e;color:#fff;box-shadow:0 8px 30px #10201844;font-weight:700}
 .notice.error{background:#9e342a}
 .notice.success{background:#285b3c}

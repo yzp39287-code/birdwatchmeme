@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Sitemap: https://yzp39287-code.github.io/birdwatchmeme/sitemap.xml
