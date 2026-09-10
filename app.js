@@ -8,6 +8,7 @@ const $=s=>document.querySelector(s),grid=$("#grid"),loginBtn=$("#loginBtn"),log
 function isAdmin(){return session?.user?.id===cfg.adminUserId}
 function escapeHtml(value){const node=document.createElement("div");node.textContent=String(value||"");return node.innerHTML}
 function showNotice(message,kind="info"){const n=$("#notice");n.textContent=message;n.className=`notice ${kind}`;n.classList.remove("hidden");clearTimeout(showNotice.timer);showNotice.timer=setTimeout(()=>n.classList.add("hidden"),4200)}
+function openImageViewer(src,alt=""){let d=$("#imageViewer");if(!d){d=document.createElement("dialog");d.id="imageViewer";d.className="image-viewer";d.innerHTML='<button class="image-viewer-close" type="button" aria-label="关闭全图">×</button><img alt="">';document.body.appendChild(d);d.querySelector("button").onclick=()=>d.close();d.onclick=e=>{if(e.target===d)d.close()}}const img=d.querySelector("img");img.src=src;img.alt=alt;d.showModal()}
 function render(){
  const visible=active==="全部"?memes:memes.filter(m=>m.category===active);
  $("#sectionTitle").textContent=`${active}分区`;$("#itemCount").textContent=loading?"加载中…":`${visible.length} 张`;$("#count").textContent=loading?"…":memes.length;
@@ -70,6 +71,7 @@ uploadForm.onsubmit=async e=>{
  }catch(error){message.textContent=error.message||"发布失败，请稍后重试"}finally{button.disabled=false;button.textContent="发布 meme"}
 };
 grid.onclick=async e=>{
+ const image=e.target.closest(".photo img");if(image){openImageViewer(image.currentSrc||image.src,image.alt);return}
  const button=e.target.closest("button[data-action]");if(!button)return;
  const meme=memes.find(m=>m.id===button.closest(".card")?.dataset.id);if(!meme)return;
  if(button.dataset.action==="share"){const url=new URL(location.href);url.hash=`meme-${meme.id}`;try{await navigator.clipboard.writeText(url.href);showNotice("作品链接已复制。","success")}catch{prompt("复制这个作品链接：",url.href)}return}
