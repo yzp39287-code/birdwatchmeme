@@ -12,7 +12,7 @@ function render(){
  const visible=active==="全部"?memes:memes.filter(m=>m.category===active);
  $("#sectionTitle").textContent=`${active}分区`;$("#itemCount").textContent=loading?"加载中…":`${visible.length} 张`;$("#count").textContent=loading?"…":memes.length;
  $("#loading").classList.toggle("hidden",!loading);$("#empty").classList.toggle("hidden",loading||visible.length>0);
- grid.innerHTML=visible.map(m=>`<article class="card" data-id="${escapeHtml(m.id)}"><div class="photo"><img src="${escapeHtml(m.image_url)}" alt="${escapeHtml(m.title)}" loading="lazy" decoding="async"><span class="chip">${escapeHtml(m.category)}</span></div><div class="copy"><h3>${escapeHtml(m.title)}</h3><p>${escapeHtml(m.caption)}</p>${isAdmin()?`<div class="card-actions"><button class="edit-button" type="button" data-action="edit">编辑</button><button class="delete-button" type="button" data-action="delete">删除</button></div>`:""}</div></article>`).join("");
+ grid.innerHTML=visible.map(m=>`<article id="meme-${escapeHtml(m.id)}" class="card ${m.is_hidden?"hidden-card":""}" data-id="${escapeHtml(m.id)}"><div class="photo"><img src="${escapeHtml(m.image_url)}" alt="${escapeHtml(m.title)}" loading="lazy" decoding="async"><span class="chip">${escapeHtml(m.category)}</span></div><div class="copy"><h3>${escapeHtml(m.title)}</h3><p>${escapeHtml(m.caption)}</p><div class="card-tools"><button class="share-button" type="button" data-action="share">复制链接</button></div>${isAdmin()?`<div class="card-actions"><button class="edit-button" type="button" data-action="edit">编辑</button><button class="delete-button" type="button" data-action="delete">彻底删除</button></div>`:""}</div></article>`).join("");
  uploadBtn.classList.toggle("hidden",!isAdmin());logoutBtn.classList.toggle("hidden",!session);loginBtn.classList.toggle("hidden",Boolean(session));
 }
 function syncCategorySelects(){
@@ -34,11 +34,14 @@ async function loadCategories(){
 async function refreshMemes(){
  if(!client){loading=false;render();showNotice("网站数据服务尚未配置完成。","error");return}
  loading=true;render();
- const {data,error}=await client.from("memes").select("id,title,caption,category,image_url,storage_path,owner_id,created_at").order("created_at",{ascending:false}).limit(200);
+ let {data,error}=await client.from("memes").select("id,title,caption,category,image_url,storage_path,owner_id,created_at,is_hidden,updated_at").order("created_at",{ascending:false}).limit(200);
+ if(error?.code==="42703")({data,error}=await client.from("memes").select("id,title,caption,category,image_url,storage_path,owner_id,created_at").order("created_at",{ascending:false}).limit(200));
  loading=false;
  if(error){render();showNotice(`图片加载失败：${error.message}`,"error");$("#retryLoad").classList.remove("hidden");return}
  $("#retryLoad").classList.add("hidden");memes=data||[];render();
+ $("#newContent").classList.add("hidden");requestAnimationFrame(()=>{if(location.hash){document.querySelector(location.hash)?.scrollIntoView({block:"center"})}});
 }
+async function checkForNewContent(){if(!client||!memes.length||document.hidden)return;const {data}=await client.from("memes").select("id,created_at").order("created_at",{ascending:false}).limit(1).maybeSingle();if(data&&data.id!==memes[0]?.id)$("#newContent").classList.remove("hidden")}
 async function initialize(){if(!client){loading=false;syncCategorySelects();renderNav();render();return}const {data}=await client.auth.getSession();session=data.session;client.auth.onAuthStateChange((_e,next)=>{session=next;renderNav();render()});renderNav();await Promise.all([loadCategories(),refreshMemes()])}
 loginBtn.onclick=async()=>{if(!client)return showNotice("网站管理员尚未完成 Supabase 配置。","error");const {error}=await client.auth.signInWithOAuth({provider:"github",options:{redirectTo:new URL(".",location.href).href}});if(error)showNotice(`登录失败：${error.message}`,"error")};
 logoutBtn.onclick=async()=>{const {error}=await client?.auth.signOut();if(error)showNotice(`退出失败：${error.message}`,"error")};
@@ -67,10 +70,12 @@ uploadForm.onsubmit=async e=>{
  }catch(error){message.textContent=error.message||"发布失败，请稍后重试"}finally{button.disabled=false;button.textContent="发布 meme"}
 };
 grid.onclick=async e=>{
- const button=e.target.closest("button[data-action]");if(!button||!isAdmin())return;
+ const button=e.target.closest("button[data-action]");if(!button)return;
  const meme=memes.find(m=>m.id===button.closest(".card")?.dataset.id);if(!meme)return;
- if(button.dataset.action==="edit"){editForm.id.value=meme.id;editForm.title.value=meme.title;editForm.caption.value=meme.caption;editForm.category.value=meme.category;$("#editMessage").textContent="";editDialog.showModal();return}
- if(!confirm(`确定删除“${meme.title}”吗？此操作无法撤销。`))return;
+ if(button.dataset.action==="share"){const url=new URL(location.href);url.hash=`meme-${meme.id}`;try{await navigator.clipboard.writeText(url.href);showNotice("作品链接已复制。","success")}catch{prompt("复制这个作品链接：",url.href)}return}
+ if(!isAdmin())return;
+ if(button.dataset.action==="edit"){editForm.id.value=meme.id;editForm.title.value=meme.title;editForm.caption.value=meme.caption;editForm.category.value=meme.category;editForm.is_hidden.checked=Boolean(meme.is_hidden);$("#editMessage").textContent="";editDialog.showModal();return}
+ if(!confirm(`将彻底删除“${meme.title}”及其图片文件。\n\n如果只是暂时下架，请取消并使用“编辑 → 暂时隐藏”。\n\n确定永久删除吗？`))return;
  button.disabled=true;button.textContent="删除中…";
  const deleted=await client.from("memes").delete().eq("id",meme.id).select("id").single();
  if(deleted.error){button.disabled=false;button.textContent="删除";return showNotice(`删除失败：${deleted.error.message}`,"error")}
@@ -79,9 +84,9 @@ grid.onclick=async e=>{
 };
 editForm.onsubmit=async e=>{
  e.preventDefault();const message=$("#editMessage"),button=editForm.querySelector("button[type=submit]");message.textContent="";if(!client||!isAdmin())return message.textContent="当前账号没有编辑权限";
- button.disabled=true;button.textContent="保存中…";const changes={title:editForm.title.value.trim(),caption:editForm.caption.value.trim(),category:editForm.category.value};
+ button.disabled=true;button.textContent="保存中…";const changes={title:editForm.title.value.trim(),caption:editForm.caption.value.trim(),category:editForm.category.value,is_hidden:editForm.is_hidden.checked,updated_at:new Date().toISOString()};
  const updated=await client.from("memes").update(changes).eq("id",editForm.id.value).select().single();button.disabled=false;button.textContent="保存修改";
  if(updated.error)return message.textContent=updated.error.message||"保存失败";
  const i=memes.findIndex(m=>m.id===updated.data.id);if(i>=0)memes[i]=updated.data;editDialog.close();render();showNotice("修改已保存。","success");
 };
-$("#retryLoad").onclick=refreshMemes;renderNav();render();initialize();
+$("#retryLoad").onclick=refreshMemes;$("#newContent").onclick=refreshMemes;window.addEventListener("focus",checkForNewContent);document.addEventListener("visibilitychange",()=>{if(!document.hidden)checkForNewContent()});setInterval(checkForNewContent,60000);renderNav();render();initialize();
