@@ -3,14 +3,22 @@
 <title>夜鹭模仿大赛｜观鸟meme</title><meta name="description" content="观鸟meme特别企划：夜鹭模仿大赛。">
 <link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../admin.css"><link rel="stylesheet" href="special.css">
 </head><body>
-<header><a class="brand" href="../../"><span class="logo">◒</span>观鸟<span>meme</span></a><div class="actions"><button id="loginBtn" class="ghost">GitHub 登录</button><button id="logoutBtn" class="ghost hidden">退出</button></div></header>
+<header><a class="brand" href="../../"><span class="logo">◒</span>观鸟<span>meme</span></a><div class="actions"><button id="loginBtn" class="ghost">登录投票</button><button id="logoutBtn" class="ghost hidden">退出</button></div></header>
 <main>
- <section class="contest-hero"><img src="../../assets/night-heron-contest.png" alt="两只动画夜鹭参加模仿大赛"><div><p>观鸟meme · 特别企划</p><h1>夜鹭模仿大赛</h1><span>它不说话，它只负责模仿。看看哪一只最有灵魂。</span></div></section>
+ <section class="contest-hero"><img src="../../assets/night-heron-contest.png" alt="两只动画夜鹭参加模仿大赛"><div><p>观鸟meme · 特别企划</p><h1>夜鹭模仿大赛</h1><span>登录后每天可投一票。它不说话，它只负责模仿。</span></div></section>
  <a class="back-link" href="../../">← 返回全部 meme</a>
- <section class="gallery"><div class="heading"><div><small>专题收录</small><h2>参赛夜鹭</h2></div><span id="itemCount">加载中…</span></div><div id="loading" class="loading">正在召集参赛夜鹭……</div><div id="grid" class="grid"></div><div id="empty" class="empty hidden">比赛还没有参赛选手</div></section>
- <section id="manager" class="manager hidden"><div class="heading"><div><small>仅管理员可见</small><h2>选择参赛作品</h2></div></div><p>从“夜鹭”分区选择作品加入或移出专题；主页卡片不会显示专题标记。</p><div id="candidateGrid" class="candidate-grid"></div></section>
+ <div class="contest-layout">
+  <section class="gallery contest-gallery"><div class="heading"><div><small>专题收录</small><h2>参赛夜鹭</h2></div><span id="itemCount">加载中…</span></div><div id="loading" class="loading">正在召集参赛夜鹭……</div><div id="grid" class="grid contest-grid"></div><div id="empty" class="empty hidden">比赛还没有参赛选手</div></section>
+  <aside class="leaderboard"><div><small>实时榜单</small><h2>当前票数</h2><p>约每 15 秒更新</p></div><ol id="ranking"><li>正在统计……</li></ol></aside>
+ </div>
+ <section id="manager" class="manager hidden"><div class="heading"><div><small>仅管理员可见</small><h2>选择参赛作品</h2></div></div><p>从“夜鹭”分区选择作品加入或移出专题；编号按加入顺序自动生成，主页卡片不会变化。</p><div id="candidateGrid" class="candidate-grid"></div></section>
 </main>
 <footer><b>观鸟meme</b><span>文明观鸟，快乐玩梗 · 请勿打扰野生鸟类</span></footer>
+<dialog id="loginDialog"><button class="close" id="closeLogin">×</button><h2>登录后投票</h2><p>普通用户使用邮箱验证码登录；每天限投一票。</p>
+ <form id="emailForm"><label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label><button class="primary" type="submit">发送验证码</button></form>
+ <form id="otpForm" class="hidden"><label>邮箱验证码<input name="token" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="输入邮件中的验证码" required></label><button class="primary" type="submit">验证并登录</button></form>
+ <p id="loginMessage"></p><div class="admin-login"><span>网站管理员：</span><button id="githubLogin" class="ghost" type="button">使用 GitHub 登录</button></div>
+</dialog>
 <div id="notice" class="notice hidden" role="status"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="../../config.js"></script><script src="special.js"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"1e97f2c4a22e40c8a8d3b1c95b1ea1ed"}'></script>
