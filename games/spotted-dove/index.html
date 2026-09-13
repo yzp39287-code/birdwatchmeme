@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>山斑鸠林间觅食</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="hud">
+    <div class="row"><span class="label">浆果</span><span id="score">0</span></div>
+    <div class="row"><span class="label">等级</span><span id="level">1</span></div>
+    <div class="row stamina"><span class="label">耐力</span><div id="stamina-bar"><div id="stamina-fill"></div></div></div>
+  </div>
+  <div id="buff-msg"></div>
+  <div id="overlay">
+    <h1>山斑鸠 · 林间觅食</h1>
+    <p>WASD 飞行 · 鼠标转向 · 空格扇翅加速（耗耐力）</p>
+    <p>靠近浆果自动拾取并恢复耐力 · 按 R 键重置游戏</p>
+    <button id="start-btn">开始游戏</button>
+  </div>
+  <div id="load-error" role="alert"></div>
+  <script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+  </script>
+  <script type="module">
+    import('./js/main.js').catch(error => {
+      console.error(error);
+      const message = document.getElementById('load-error');
+      message.textContent = '游戏资源加载失败，请检查网络后刷新页面。';
+      message.classList.add('show');
+    });
+  </script>
+</body>
+</html>
