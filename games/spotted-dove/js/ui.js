@@ -6,6 +6,8 @@ export class UI {
     this.fill = document.getElementById('stamina-fill');
     this.overlay = document.getElementById('overlay');
     this.btn = document.getElementById('start-btn');
+    this.overlayTitle = this.overlay.querySelector('h1');
+    this.defaultTitle = this.overlayTitle.textContent;
     this.flashEl = document.getElementById('buff-msg');
     this._flashTimer = 0;
   }
@@ -29,8 +31,18 @@ export class UI {
 
   showOverlay(show) { this.overlay.classList.toggle('hidden', !show); }
 
+  gameOver() {
+    this.overlayTitle.textContent = '体力耗尽';
+    this.btn.textContent = '重新开始';
+    this.showOverlay(true);
+  }
+
   onLock(fn) {
-    this.btn.addEventListener('click', () => fn());
+    this.btn.addEventListener('click', () => {
+      this.overlayTitle.textContent = this.defaultTitle;
+      this.btn.textContent = '开始游戏';
+      fn();
+    });
     // 指针解锁（Esc）时重新显示遮罩
     document.addEventListener('pointerlockchange', () => {
       this.showOverlay(document.pointerLockElement !== document.body);
