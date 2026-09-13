@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=20260913c';
-import { Bird } from './bird.js?v=20260913c';
-import { World } from './world.js?v=20260913c';
-import { BerryManager } from './berries.js?v=20260913c';
-import { Leaves } from './leaves.js?v=20260913c';
-import { UI } from './ui.js?v=20260913c';
+import { CONFIG } from './config.js?v=20260913d';
+import { Bird } from './bird.js?v=20260913d';
+import { World } from './world.js?v=20260913d';
+import { BerryManager } from './berries.js?v=20260913d';
+import { Leaves } from './leaves.js?v=20260913d';
+import { UI } from './ui.js?v=20260913d';
 
 // ---------- 基础渲染 ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
