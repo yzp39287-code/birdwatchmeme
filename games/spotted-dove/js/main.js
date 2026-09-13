@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
-import { Bird } from './bird.js';
-import { World } from './world.js';
-import { BerryManager } from './berries.js';
-import { Leaves } from './leaves.js';
-import { UI } from './ui.js';
+import { CONFIG } from './config.js?v=20260913c';
+import { Bird } from './bird.js?v=20260913c';
+import { World } from './world.js?v=20260913c';
+import { BerryManager } from './berries.js?v=20260913c';
+import { Leaves } from './leaves.js?v=20260913c';
+import { UI } from './ui.js?v=20260913c';
 
 // ---------- 基础渲染 ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -47,6 +47,7 @@ const state = {
   landed: false,
 };
 const keys = {};
+let gameActive = true;
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') resetGame(); // R 键重置游戏
@@ -69,7 +70,13 @@ function resetGame() {
 }
 
 const ui = new UI();
-ui.onLock(() => document.body.requestPointerLock());
+ui.onLock(() => {
+  if (!gameActive) {
+    resetGame();
+    gameActive = true;
+  }
+  document.body.requestPointerLock();
+});
 addEventListener('mousemove', e => {
   if (document.pointerLockElement !== document.body) return;
   state.yaw -= e.movementX * CONFIG.bird.turnSpeed;
@@ -84,6 +91,12 @@ function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.05);
   const pos = bird.group.position;
+
+  // 死亡后保持当前画面，不再更新移动、拾取或恢复耐力。
+  if (!gameActive) {
+    renderer.render(scene, camera);
+    return;
+  }
 
   // 飞行方向：WASD 相对相机朝向，S 反向，A/D 侧移
   const fwd = new THREE.Vector3(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
@@ -102,9 +115,12 @@ function tick() {
     state.stamina -= CONFIG.bird.staminaDrainFly * dt;
     if (wantBoost) state.stamina -= CONFIG.bird.staminaDrainBoost * dt;
   }
-  if (state.stamina <= 0) {
-    resetGame();
+  if (state.stamina <= 0.5) {
+    state.stamina = 0;
+    state.vel.set(0, 0, 0);
+    gameActive = false;
     Object.keys(keys).forEach(code => { keys[code] = false; });
+    ui.update(state.score, state.level, 0, state.staminaMax);
     ui.gameOver();
     if (document.pointerLockElement) document.exitPointerLock();
     return;
