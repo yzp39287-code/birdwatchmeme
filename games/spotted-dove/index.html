@@ -13,6 +13,15 @@
     <div class="row stamina"><span class="label">耐力</span><div id="stamina-bar"><div id="stamina-fill"></div></div></div>
   </div>
   <div id="buff-msg"></div>
+  <div id="touch-controls" aria-label="手机游戏控制">
+    <div class="touch-dpad">
+      <button class="touch-key up" data-key="KeyW" aria-label="向前">▲</button>
+      <button class="touch-key left" data-key="KeyA" aria-label="向左">◀</button>
+      <button class="touch-key down" data-key="KeyS" aria-label="向后">▼</button>
+      <button class="touch-key right" data-key="KeyD" aria-label="向右">▶</button>
+    </div>
+    <button class="touch-key boost" data-key="Space">冲刺</button>
+  </div>
   <div id="overlay">
     <h1>山斑鸠 · 林间觅食</h1>
     <p>WASD 飞行 · 鼠标转向 · 空格扇翅加速（耗耐力）</p>
@@ -24,7 +33,7 @@
   { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
   </script>
   <script type="module">
-    import('./js/main.js?v=20260913d').catch(error => {
+    import('./js/main.js?v=20260913e').catch(error => {
       console.error(error);
       const message = document.getElementById('load-error');
       message.textContent = '游戏资源加载失败，请检查网络后刷新页面。';
