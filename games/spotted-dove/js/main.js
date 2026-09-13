@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=20260913f';
-import { Bird } from './bird.js?v=20260913f';
-import { World } from './world.js?v=20260913f';
-import { BerryManager } from './berries.js?v=20260913f';
-import { Leaves } from './leaves.js?v=20260913f';
-import { UI } from './ui.js?v=20260913f';
+import { CONFIG } from './config.js?v=20260913g';
+import { Bird } from './bird.js?v=20260913g';
+import { World } from './world.js?v=20260913g';
+import { BerryManager } from './berries.js?v=20260913g';
+import { Leaves } from './leaves.js?v=20260913g';
+import { UI } from './ui.js?v=20260913g';
 
 // ---------- 基础渲染 ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -57,16 +57,25 @@ addEventListener('keyup', e => keys[e.code] = false);
 // 手机方向键和冲刺键。
 document.querySelectorAll('.touch-key').forEach(button => {
   const code = button.dataset.key;
-  const press = e => { e.preventDefault(); button.setPointerCapture?.(e.pointerId); keys[code] = true; button.classList.add('active'); };
+  const press = e => { e.preventDefault(); if (e.pointerId != null) button.setPointerCapture?.(e.pointerId); keys[code] = true; button.classList.add('active'); };
   const release = e => { e.preventDefault(); keys[code] = false; button.classList.remove('active'); };
   button.addEventListener('pointerdown', press);
   button.addEventListener('pointerup', release);
   button.addEventListener('pointercancel', release);
+  button.addEventListener('touchstart', press, { passive: false });
+  button.addEventListener('touchend', release, { passive: false });
+  button.addEventListener('touchcancel', release, { passive: false });
 });
 const touchControls = document.getElementById('touch-controls');
 ['contextmenu', 'selectstart', 'dragstart'].forEach(type => {
   touchControls.addEventListener(type, e => e.preventDefault());
 });
+if (matchMedia('(hover: none), (pointer: coarse)').matches) {
+  ['contextmenu', 'selectstart', 'dragstart'].forEach(type => {
+    document.addEventListener(type, e => e.preventDefault(), { capture: true });
+  });
+  document.addEventListener('selectionchange', () => window.getSelection()?.removeAllRanges());
+}
 
 // 重置：积分清零、等级回 1、耐力回满、浆果重生成、斑鸠回出生点
 function resetGame() {
