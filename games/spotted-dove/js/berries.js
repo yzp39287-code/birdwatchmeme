@@ -11,7 +11,7 @@ export class BerryManager {
     this.time = 0;
 
     this.geo = new THREE.SphereGeometry(CONFIG.berry.radius, 8, 6);
-    this.goldGeo = new THREE.SphereGeometry(CONFIG.berry.radius * 1.3, 8, 6);
+    this.goldGeo = new THREE.SphereGeometry(CONFIG.berry.radius, 8, 6);
     this.mat = new THREE.MeshLambertMaterial({ color: 0xd23b2e });
     this.goldMat = new THREE.MeshLambertMaterial({ color: 0xf3c93e, emissive: 0x7a5c0a });
 
