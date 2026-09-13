@@ -36,8 +36,9 @@ export class BerryManager {
       (Math.random() < CONFIG.berry.goldChance && this._goldCount() < CONFIG.berry.goldMax);
     const m = new THREE.Mesh(golden ? this.goldGeo : this.geo, golden ? this.goldMat : this.mat);
     m.userData.golden = golden;
-    m.userData.baseY = 0;
     m.position.copy(this.randomSpot());
+    // 记录实际生成高度；否则树枝上的金浆果会在下一帧被拉到地面附近。
+    m.userData.baseY = m.position.y;
     m.castShadow = true;
     this.scene.add(m);
     this.berries.push(m);
@@ -59,7 +60,6 @@ export class BerryManager {
       b.rotation.y += dt;
       // 金浆果上下浮动更醒目
       if (b.userData.golden) {
-        b.userData.baseY ??= b.position.y;
         b.position.y = b.userData.baseY + Math.sin(this.time * 3 + i) * 0.08;
       }
       if (b.position.distanceTo(birdPos) < pickR) {
