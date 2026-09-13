@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js?v=20260913d';
-import { Bird } from './bird.js?v=20260913d';
-import { World } from './world.js?v=20260913d';
-import { BerryManager } from './berries.js?v=20260913d';
-import { Leaves } from './leaves.js?v=20260913d';
-import { UI } from './ui.js?v=20260913d';
+import { CONFIG } from './config.js?v=20260913e';
+import { Bird } from './bird.js?v=20260913e';
+import { World } from './world.js?v=20260913e';
+import { BerryManager } from './berries.js?v=20260913e';
+import { Leaves } from './leaves.js?v=20260913e';
+import { UI } from './ui.js?v=20260913e';
 
 // ---------- 基础渲染 ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -54,6 +54,17 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys[e.code] = false);
 
+// 手机方向键和冲刺键。
+document.querySelectorAll('.touch-key').forEach(button => {
+  const code = button.dataset.key;
+  const press = e => { e.preventDefault(); keys[code] = true; button.classList.add('active'); };
+  const release = e => { e.preventDefault(); keys[code] = false; button.classList.remove('active'); };
+  button.addEventListener('pointerdown', press);
+  button.addEventListener('pointerup', release);
+  button.addEventListener('pointercancel', release);
+  button.addEventListener('pointerleave', release);
+});
+
 // 重置：积分清零、等级回 1、耐力回满、浆果重生成、斑鸠回出生点
 function resetGame() {
   state.score = 0;
@@ -75,13 +86,34 @@ ui.onLock(() => {
     resetGame();
     gameActive = true;
   }
-  document.body.requestPointerLock();
+  if (matchMedia('(hover: none), (pointer: coarse)').matches) {
+    ui.showOverlay(false);
+  } else {
+    document.body.requestPointerLock();
+  }
 });
 addEventListener('mousemove', e => {
   if (document.pointerLockElement !== document.body) return;
   state.yaw -= e.movementX * CONFIG.bird.turnSpeed;
   state.pitch = THREE.MathUtils.clamp(state.pitch - e.movementY * CONFIG.bird.turnSpeed, -1.2, 1.2);
 });
+
+// 在非按钮区域单指滑动，替代手机上的鼠标视角。
+let lookTouch = null;
+renderer.domElement.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1) return;
+  lookTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}, { passive: true });
+renderer.domElement.addEventListener('touchmove', e => {
+  if (!lookTouch || e.touches.length !== 1) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  state.yaw -= (touch.clientX - lookTouch.x) * CONFIG.bird.turnSpeed * 1.35;
+  state.pitch = THREE.MathUtils.clamp(state.pitch - (touch.clientY - lookTouch.y) * CONFIG.bird.turnSpeed * 1.35, -1.2, 1.2);
+  lookTouch = { x: touch.clientX, y: touch.clientY };
+}, { passive: false });
+renderer.domElement.addEventListener('touchend', () => { lookTouch = null; });
+renderer.domElement.addEventListener('touchcancel', () => { lookTouch = null; });
 
 // ---------- 主循环 ----------
 const clock = new THREE.Clock();
