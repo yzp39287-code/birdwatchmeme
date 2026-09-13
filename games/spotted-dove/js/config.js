@@ -24,7 +24,7 @@ export const CONFIG = {
     staminaGain: 15,    // 每颗红浆果恢复的耐力
     goldScore: 50,      // 金浆果积分
     goldStaminaGain: 50, // 金浆果耐力恢复
-    goldChance: 0.15,   // 刷新时有 15% 概率成为金浆果
+    goldChance: 0.12,   // 刷新时有 12% 概率成为金浆果
     goldMax: 2,         // 场上金浆果数量上限
     respawnDelay: 6,    // 被拾取后重生等待（秒），资源可再生
     levelThreshold: 50, // 每级所需积分增量
