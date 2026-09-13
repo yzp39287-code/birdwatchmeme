@@ -96,11 +96,18 @@ function tick() {
   const moving = dir.lengthSq() > 0;
   if (moving) dir.normalize();
 
-  // 耐力：持续飞行消耗，加速消耗更快；耗尽后无法加速（只能平飞）
+  // 耐力：持续飞行消耗，加速消耗更快；耗尽后本局立即结束并重置。
   const wantBoost = keys['Space'] && moving && state.stamina > 0;
   if (moving) {
     state.stamina -= CONFIG.bird.staminaDrainFly * dt;
     if (wantBoost) state.stamina -= CONFIG.bird.staminaDrainBoost * dt;
+  }
+  if (state.stamina <= 0) {
+    resetGame();
+    Object.keys(keys).forEach(code => { keys[code] = false; });
+    ui.gameOver();
+    if (document.pointerLockElement) document.exitPointerLock();
+    return;
   }
   const speed = CONFIG.bird.baseSpeed + state.speedBonus;
 
