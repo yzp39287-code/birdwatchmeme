@@ -1,0 +1,52 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #87ceeb; }
+canvas { display: block; }
+
+/* ---------- HUD ---------- */
+#hud {
+  position: fixed; top: 16px; left: 16px; z-index: 10;
+  font-family: "Microsoft YaHei", sans-serif; color: #fff;
+  background: rgba(0, 0, 0, 0.35); padding: 12px 16px;
+  border-radius: 10px; user-select: none; min-width: 200px;
+}
+#hud .row { display: flex; align-items: center; margin: 4px 0; font-size: 15px; }
+#hud .label { width: 44px; opacity: 0.85; }
+#hud .row span:not(.label) { font-weight: bold; }
+#stamina-bar {
+  flex: 1; height: 12px; background: rgba(255, 255, 255, 0.25);
+  border-radius: 6px; overflow: hidden; margin-left: 8px;
+}
+#stamina-fill {
+  width: 100%; height: 100%; background: #7ee081;
+  transition: width 0.1s linear, background 0.3s;
+}
+
+/* ---------- 升级提示 ---------- */
+#buff-msg {
+  position: fixed; top: 120px; left: 16px; z-index: 10;
+  font-family: "Microsoft YaHei", sans-serif; font-size: 14px; color: #ffe9a8;
+  background: rgba(0, 0, 0, 0.4); padding: 8px 14px; border-radius: 8px;
+  opacity: 0; transition: opacity 0.4s; pointer-events: none;
+}
+#buff-msg.show { opacity: 1; }
+
+/* ---------- 开始遮罩 ---------- */
+#overlay {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(30, 50, 30, 0.75); color: #fff;
+  font-family: "Microsoft YaHei", sans-serif; text-align: center;
+}
+#overlay h1 { font-size: 42px; margin-bottom: 16px; letter-spacing: 4px; }
+#overlay p { font-size: 16px; margin: 6px 0; opacity: 0.85; }
+#start-btn {
+  margin-top: 28px; padding: 12px 44px; font-size: 20px;
+  border: none; border-radius: 8px; background: #6dbf5e; color: #fff;
+  cursor: pointer; transition: background 0.2s;
+}
+#start-btn:hover { background: #55a448; }
+#overlay.hidden { display: none; }
+
+#load-error { display: none; position: fixed; left: 50%; bottom: 24px; z-index: 30; width: min(520px, calc(100% - 32px)); padding: 13px 16px; transform: translateX(-50%); border-radius: 10px; background: #8f2d23; color: #fff; font-family: "Microsoft YaHei", sans-serif; text-align: center; }
+#load-error.show { display: block; }
+@media (max-width: 620px) { #overlay { padding: 24px; } #overlay h1 { font-size: 28px; letter-spacing: 1px; } #overlay p { font-size: 14px; } #hud { top: 10px; left: 10px; min-width: 170px; padding: 9px 12px; } }
