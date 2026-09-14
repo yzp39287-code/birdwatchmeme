@@ -1,19 +1,6 @@
 [build]
   publish = "."
 
-[functions]
-  directory = "netlify/functions"
-  included_files = ["netlify/functions/dove-sequel.html"]
-
-[[redirects]]
-  from = "/netlify/functions/dove-sequel.html"
-  to = "/404.html"
-  status = 404
-
-[[redirects]]
-  from = "/netlify/functions/dove-sequel.js"
-  to = "/404.html"
-  status = 404
 
 [[headers]]
   for = "/*"
