@@ -1,0 +1,3253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>鸠子街区历险记·后传 · 珠颈斑鸠的窗台</title>
+<link rel="icon" href="data:,"/>
+<!--
+  ============================================================
+  《鸠子街区历险记 · 后传》 一只珠颈斑鸠的居民楼窗台觅食记
+  ------------------------------------------------------------
+  · 单文件 Three.js 游戏，浏览器直接打开即玩（需联网加载 CDN）
+  · 场景：居民楼外挂的一排水泥窗台 / 空调外机 / 花架 / 雨棚，
+    台面上散落着住户倒出来的谷子。
+  · 主角：写实低面珠颈斑鸠（颈侧黑领 + 白色珠点、暗色喙、
+    橙红虹膜、紫红脚 —— 均为该种的真实野外特征，非卡通化）。
+    模型在运行时程序化生成顶点数据后，经
+    GLTFExporter 导出 GLB -> GLTFLoader 读回 的 GLTF 管线加载，
+    与外部 .glb 模型的接入方式完全一致，方便后续替换精细模型。
+  · 操作：WASD 移动（相对相机）｜空格 短距离扑跳 ｜
+    鼠标右键拖拽 旋转视角 ｜滚轮 缩放 ｜M 静音 ｜H 隐藏帮助
+  · 调试：浏览器控制台输入 GAME_DEBUG 查看并实时修改参数，
+    例如 GAME_DEBUG.gravity = 6 可以让扑跳更飘。
+  ============================================================
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0d1216;
+    font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;user-select:none}
+  canvas{display:block}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #bars{position:absolute;top:14px;left:14px;display:flex;flex-direction:column;gap:8px;
+    background:rgba(10,16,20,.55);padding:10px 12px;border-radius:10px;
+    backdrop-filter:blur(4px);min-width:268px}
+  .barRow{display:flex;align-items:center;gap:8px}
+  .label{width:56px;font-size:12px;color:#d7e6dc;white-space:nowrap}
+  .bar{flex:1;height:12px;background:rgba(255,255,255,.12);border-radius:6px;overflow:hidden;
+    position:relative}
+  .bar>div{height:100%;width:0%;border-radius:6px}
+  /* 血量条：宽度不做过渡 —— 有过渡时"显示值"会一直追着"真实血量"跑，
+     慢速掉血时看起来就是条子不动、数字在掉。这里要求严格同步。 */
+  #hpFill{position:relative;z-index:2;transition:none}
+  /* 扣血残影：先跳到扣血前的位置，再平滑追平，掉多少一眼看得出来 */
+  #hpGhost{position:absolute;left:0;top:0;z-index:1;width:0;border-radius:6px;
+    background:rgba(255,92,72,.6);transition:width .55s ease-out}
+  /* 血量：绿 -> 橙 -> 红 */
+  #hpFill{background:linear-gradient(90deg,#4fae63,#a8e08a)}
+  #hpRow.warn #hpFill{background:linear-gradient(90deg,#d9873f,#e8b25a)}
+  #hpRow.danger #hpFill{background:linear-gradient(90deg,#c0402f,#e0745a)}
+  #hpRow.danger .label{color:#ff9b8a;animation:blink .8s infinite}
+  @keyframes blink{50%{opacity:.4}}
+  @keyframes barHit{0%{box-shadow:0 0 0 rgba(255,90,70,0)}
+                    25%{box-shadow:0 0 13px rgba(255,90,70,.95)}
+                    100%{box-shadow:0 0 0 rgba(255,90,70,0)}}
+  @keyframes barHeal{0%{box-shadow:0 0 0 rgba(120,225,140,0)}
+                     25%{box-shadow:0 0 13px rgba(120,225,140,.9)}
+                     100%{box-shadow:0 0 0 rgba(120,225,140,0)}}
+  #hpRow.hit .bar{animation:barHit .45s ease-out}
+  #hpRow.heal .bar{animation:barHeal .45s ease-out}
+  /* 积分：金色进度条，接近目标时发光 */
+  #scoreFill{background:linear-gradient(90deg,#c8952f,#ffdf8f);transition:width .18s}
+  #scoreRow.near #scoreFill{background:linear-gradient(90deg,#e8b23f,#fff3b8);
+    box-shadow:0 0 9px rgba(255,215,110,.75)}
+  #scoreRow.near .label{color:#ffe6a8}
+  .num{width:44px;text-align:right;font-size:12px;color:#fff;font-variant-numeric:tabular-nums}
+  #statRow{font-size:11px;color:#9fb8aa;line-height:1.7}
+  #statRow b{color:#ffe0a0;font-variant-numeric:tabular-nums}
+
+  #toast{position:absolute;top:88px;left:50%;transform:translateX(-50%);
+    font-size:14px;color:#fff;background:rgba(10,16,20,.66);padding:8px 18px;
+    border-radius:8px;opacity:0;transition:opacity .28s;white-space:nowrap;z-index:6}
+  #popLayer{position:fixed;inset:0;pointer-events:none;z-index:6}
+  .score-pop{position:absolute;transform:translate(-50%,-50%);
+    color:#ffe07a;font:bold 16px 'Segoe UI','Microsoft YaHei',sans-serif;
+    text-shadow:0 0 6px rgba(255,170,40,.85),0 1px 2px #000;
+    animation:popRise .85s ease-out forwards}
+  @keyframes popRise{0%{opacity:1}100%{opacity:0;transform:translate(-50%,-190%)}}
+  #hint{position:absolute;right:14px;bottom:12px;font-size:11px;
+    color:rgba(220,232,226,.7);text-align:right;line-height:1.85}
+  #fps{position:absolute;top:10px;right:12px;font-size:11px;color:#9fe0a8;display:none;
+    z-index:5;text-shadow:0 0 3px #000}
+
+  /* ---------- 开始 / 结束界面 ---------- */
+  .screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;background:rgba(8,14,18,.82);z-index:10;color:#e8f0ea;
+    backdrop-filter:blur(6px)}
+  .screen h1{font-size:40px;letter-spacing:6px;margin-bottom:8px;color:#f6f8f2;text-align:center}
+  .screen .sub{color:#a9c6b2;margin-bottom:24px;font-size:14px;letter-spacing:2px}
+  .ctl{background:rgba(255,255,255,.06);border-radius:12px;padding:16px 26px;font-size:13px;
+    line-height:2.05;color:#d5e2da;margin-bottom:24px;max-width:660px}
+  .ctl b{color:#ffd97a;font-weight:600}
+  button{pointer-events:auto;font-size:17px;padding:12px 44px;border:none;border-radius:10px;
+    background:linear-gradient(180deg,#7cc06a,#3f8f4e);color:#fff;cursor:pointer;letter-spacing:5px}
+  button:hover{filter:brightness(1.12)}
+  button:disabled{filter:grayscale(.6);cursor:wait}
+  #overScreen{display:none}
+  #overScreen h1{color:#f0b0a0}
+  #newRecord{display:none;color:#ffd97a;font-size:15px;margin-top:8px;letter-spacing:2px}
+  #bootError{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    z-index:20;color:#f0b0a0;font-size:16px;background:rgba(8,14,18,.92);text-align:center;
+    line-height:2;padding:30px}
+
+  /* ---------- 通关动画 ---------- */
+  /* 起飞时从画面边缘泛起的暖金色渐晕 */
+  #winVignette{position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;
+    transition:opacity 1.2s linear;
+    background:radial-gradient(circle at 50% 44%,
+      rgba(255,232,160,0) 26%, rgba(255,198,96,.36) 70%, rgba(255,166,58,.66) 100%)}
+  #winBanner{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;
+    justify-content:center;pointer-events:none;z-index:8;text-align:center}
+  #winBanner .wb1{font-size:52px;font-weight:700;letter-spacing:14px;color:#fff8e0;
+    text-shadow:0 0 22px rgba(255,205,95,.95),0 0 64px rgba(255,170,40,.7),0 2px 5px rgba(0,0,0,.5);
+    opacity:0}
+  #winBanner .wb2{margin-top:16px;font-size:18px;letter-spacing:9px;color:#ffeec4;opacity:0;
+    text-shadow:0 0 14px rgba(255,190,80,.9),0 1px 3px rgba(0,0,0,.55)}
+  #winBanner.show .wb1{animation:wbIn .9s cubic-bezier(.2,.9,.25,1) forwards}
+  #winBanner.show .wb2{animation:wbIn .9s .9s cubic-bezier(.2,.9,.25,1) forwards}
+  @keyframes wbIn{0%{opacity:0;transform:scale(.84)}
+                  60%{opacity:1;transform:scale(1.05)}
+                  100%{opacity:1;transform:scale(1)}}
+  #winScreen{display:none}
+  #winScreen h1{color:#ffe6a8;text-shadow:0 0 26px rgba(255,190,80,.55)}
+</style>
+</head>
+<body>
+
+<!-- ======================= HUD ======================= -->
+<div id="hud">
+  <div id="bars">
+    <div class="barRow" id="hpRow"><span class="label">血量</span><div class="bar"><div id="hpGhost"></div><div id="hpFill"></div></div><span class="num" id="hpNum">100</span></div>
+    <div class="barRow" id="scoreRow"><span class="label">积分</span><div class="bar"><div id="scoreFill"></div></div><span class="num" id="scoreNum">0</span></div>
+    <div id="statRow">
+      成长进度：<b id="goalNum">0 / 150</b>　最高积分：<b id="bestNum">0</b><br/>
+      离街面高度：<b id="heightNum">9.0</b> m　站立：<b id="perchName">一楼窗台</b>　同台鸟：<b id="birdNum">0</b>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <div id="hint">
+    WASD 移动（相对相机）· 空格 短距离扑跳<br/>
+    吃谷子：加分 + 回血 · 攒到 150 分完成成长<br/>
+    左键点身边的鸟：啄走它 · 靠太近会被鸟啄<br/>
+    右键拖拽 旋转视角 · 滚轮 缩放 · M 静音 · H 隐藏帮助<br/>
+    控制台 GAME_DEBUG.help() 可查/改刷新速度、AI 数量、伤害数值
+  </div>
+  <div id="fps"></div>
+</div>
+<div id="popLayer"></div>
+<div id="winVignette"></div>
+<div id="winBanner"><div class="wb1">成长完成</div><div class="wb2">前往鸠子乐园…</div></div>
+
+<!-- ======================= 开始界面 ======================= -->
+<div class="screen" id="startScreen">
+  <h1>鸠子街区历险记 · 后传</h1>
+  <div class="sub">珠颈斑鸠 · 居民楼窗台觅食记</div>
+  <div class="ctl">
+    <b>WASD</b> 移动（方向相对相机）　<b>空格</b> 短距离扑跳（上楼全靠它）<br/>
+    <b>右键拖拽</b> 旋转视角　<b>滚轮</b> 缩放　<b>M</b> 静音　<b>H</b> 隐藏帮助<br/>
+    窗台会<b>随机刷新谷子</b>，走到谷子上就自动啄食：<b>加积分 + 回血</b>（血量上限 150，开局 100）；<br/>
+    积分攒到 <b>150 分</b>就完成成长 —— 展翅起飞，前往<b>鸠子乐园</b>；<br/>
+    窗台上还有别的鸟（<b>珠颈斑鸠、山斑鸠、麻雀、喜鹊、丝光椋鸟</b>）跟你抢谷子，<br/>
+    它们吃掉的你就没了；麻雀小胆、见人就躲，喜鹊最横，会直接凑到你脚边抢食；<br/>
+    靠得太近时，胆大的鸟会回身<b>啄你</b>（每次掉血很少，但会被耗）；<br/>
+    <b>左键点击</b>身边的鸟就能把它啄走 —— 被啄过的鸟会消停一阵子；<br/>
+    血量耗尽会倒在窗台上，掉出窗台会直接摔到楼下；<br/>
+    住户偶尔会从窗子里伸出<b>扫帚</b>赶鸟，听到提示音赶紧躲。
+  </div>
+  <button id="startBtn" disabled>加载中…</button>
+</div>
+
+<!-- ======================= 结束界面 ======================= -->
+<div class="screen" id="overScreen">
+  <h1 id="overTitle">游戏结束</h1>
+  <div class="sub" id="overSub">——</div>
+  <div class="ctl" style="text-align:center">
+    本局积分：<b id="finalScore" style="font-size:20px">0</b><br/>
+    最高积分：<b id="finalBest">0</b>
+    <div id="newRecord">★ 新纪录！★</div>
+  </div>
+  <button id="restartBtn">再来一次</button>
+</div>
+
+<!-- ======================= 通关界面 ======================= -->
+<div class="screen" id="winScreen">
+  <h1>鸠子乐园</h1>
+  <div class="sub">成长完成 · 这里的窗台永远有吃不完的谷子</div>
+  <div class="ctl" style="text-align:center">
+    本局积分：<b id="winScore" style="font-size:20px">0</b><br/>
+    最高积分：<b id="winBest">0</b>
+    <div id="winRecord" style="display:none;color:#ffd97a;font-size:15px;margin-top:8px;letter-spacing:2px">★ 新纪录！★</div>
+  </div>
+  <button id="winBtn">再玩一次</button>
+</div>
+
+<div id="bootError">Three.js 加载失败（CDN 不可达）<br/>请检查网络连接后刷新页面</div>
+
+<!-- CDN 加载失败看门狗：10 秒内模块脚本未完成启动则提示 -->
+<script>
+  window.__booted = false;
+  setTimeout(function(){
+    if(!window.__booted){
+      var d = document.getElementById('bootError');
+      if(d) d.style.display = 'flex';
+    }
+  }, 10000);
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+/* =====================================================================
+ * 《鸠子街区历险记 · 后传》 —— 主程序
+ * 模块结构：
+ *   §0  调试开关 (window.GAME_DEBUG)
+ *   §1  通用工具
+ *   §2  音频管理器（WebAudio 合成音效）
+ *   §3  模型工厂 + GLTF 管线（珠颈斑鸠 / 谷子 / 扫帚 / 街景道具）
+ *   §4  UI 管理器
+ *   §5  世界构建（居民楼立面 / 窗台平台 / 街道 / 对面楼）
+ *   §6  谷子系统（散落 + 补生 + 啄食判定）
+ *   §7  扫帚威胁系统（住户驱赶）
+ *   §8  珠颈斑鸠玩家（移动 / 扑跳 / 姿态动画）
+ *   §9  街区其他鸟类 AI（珠颈斑鸠/山斑鸠/麻雀/喜鹊/丝光椋鸟）
+ *   §10 相机 rig（第三人称跟随）
+ *   §11 粒子特效
+ *   §12 游戏主控 & 输入
+ *   §13 启动
+ * ===================================================================== */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+/* =====================================================================
+ * §0 调试开关 —— 控制台实时可改（赋值立即生效）
+ * ===================================================================== */
+const DBG = window.GAME_DEBUG = {
+  timeScale: 1,
+  showStatsOverlay: false,
+
+  /* --- 移动 / 扑跳物理 ---
+     重力给得偏大，是为了让"扑跳"干脆：滞空约 0.85 秒、抬升约 1.36、
+     水平最多约 1.7，正好一步登上一层台面（相邻台面高差 ≤1.15），
+     又不会飞得太远冲出窗台。 */
+  walkSpeed: 2.30,        // 地面行走速度（单位/秒）
+  walkAccel: 14.0,        // 地面速度伺服速率
+  hopUp: 6.40,            // 扑跳竖直初速
+  hopKick: 1.70,          // 扑跳时沿输入方向的前冲初速
+  airSpeed: 2.10,         // 空中水平速度上限
+  airAccel: 5.50,         // 空中速度伺服速率
+  gravity: 15.0,
+  landFriction: 0.22,     // 落地瞬间保留的水平速度比例
+  turnRateGround: 12.0,   // 地面转身速率
+  turnRateAir: 6.0,       // 空中转身速率
+
+  /* --- 血量 / 积分 / 成长 --- */
+  hpMax: 150,             // 血量上限
+  hpStart: 100,           // 开局血量
+  hpDrain: 1.60,          // 每秒自然消耗（不进食会越来越虚）
+  hpPerGrain: 7,          // 每粒谷子回血
+  scorePerGrain: 5,       // 每粒谷子积分
+  scoreGoal: 150,         // 成长目标积分（= 30 粒谷子），攒够触发通关
+  winAnimSec: 5.8,        // 通关动画时长（秒）
+  winClimb: 9.5,          // 通关起飞时的初始爬升速度
+
+  /* --- 谷子 --- */
+  eatRange: 0.22,         // 啄食判定半径
+  eatCooldown: 0.18,      // 两次啄食的最小间隔
+  milletRespawn: 0.85,    // 补生检查间隔（秒）——鸟多了，刷新也得跟上
+  milletBurstChance: 0.30,// 单次补生"冒出一小撮"的概率
+  milletPopSec: 0.30,     // 新生谷子从小长到正常大小的时长
+
+  /* --- 鸟类争斗 --- */
+  aiMax: 7,               // AI 鸟数量上限（控制台改这个值会即时生效，硬上限 14）
+  peckReach: 1.70,        // 玩家点击啄击的有效距离
+  fightSpace: 0.85,       // 靠到多近会擦枪走火
+  aiDamageMul: 1,         // AI 啄击伤害倍率（调难度用）
+
+  /* --- 扫帚威胁 --- */
+  sweepEnabled: true,
+  sweepFirstDelay: 7.0,
+  sweepIntervalMin: 7.5,
+  sweepIntervalMax: 13.0,
+  sweepWarnSec: 0.9,      // 预警（扫帚探出）
+  sweepSwingSec: 0.85,    // 横扫
+  sweepBackSec: 0.55,     // 收回
+  sweepDamage: 18,
+  sweepHitRadius: 0.46,
+  sweepDamageCooldown: 1.2,
+
+  /* --- 失败判定 --- */
+  fallDeathY: -4.0,       // 低于该高度判定坠楼
+
+  /* --- 相机 --- */
+  cameraDist: 1.95,
+  cameraMinDist: 0.90,
+  cameraMaxDist: 6.00,
+  cameraPitchBase: 0.27,
+  wallMinCameraZ: 0.42    // 相机不能穿进墙里（墙面在 z=0）
+};
+/** 控制台调参提示：GAME_DEBUG.help() 打印当前可改项 */
+DBG.help = () => ({
+  谷子刷新秒: DBG.milletRespawn, 成撮概率: DBG.milletBurstChance, 冒出时长: DBG.milletPopSec,
+  AI数量: DBG.aiMax, AI伤害倍率: DBG.aiDamageMul, 啄击距离: DBG.peckReach,
+  扫帚伤害: DBG.sweepDamage, 每秒掉血: DBG.hpDrain, 每粒回血: DBG.hpPerGrain,
+  每粒积分: DBG.scorePerGrain, 通关积分: DBG.scoreGoal,
+  血量上限: DBG.hpMax, 扑跳重力: DBG.gravity, 时间倍率: DBG.timeScale
+});
+
+/* =====================================================================
+ * §1 通用工具
+ * ===================================================================== */
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand  = (a, b) => a + Math.random() * (b - a);
+const lerp  = (a, b, t) => a + (b - a) * t;
+/** 角度阻尼插值（处理 2π 环绕） */
+function dampAngle(cur, target, lambda, dt){
+  let d = (target - cur) % (Math.PI * 2);
+  if(d >  Math.PI) d -= Math.PI * 2;
+  if(d < -Math.PI) d += Math.PI * 2;
+  return cur + d * (1 - Math.exp(-lambda * dt));
+}
+/** 按名称深度查找节点 */
+function findDeep(root, name){
+  let r = null;
+  root.traverse(o => { if(!r && o.name === name) r = o; });
+  return r;
+}
+/** 帧率无关的指数逼近系数 */
+const damp = (dt, lambda) => 1 - Math.exp(-lambda * dt);
+
+/** Canvas 生成纹理 */
+function makeTexture(size, draw, repeatX = 1, repeatY = 1){
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeatX, repeatY);
+  t.anisotropy = 4;
+  return t;
+}
+/** 软圆形贴图（粒子 / 云用） */
+let _softTex = null;
+function softCircleTexture(){
+  if(_softTex) return _softTex;
+  _softTex = makeTexture(64, (ctx, s) => {
+    const g = ctx.createRadialGradient(s/2, s/2, 2, s/2, s/2, s/2);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.6, 'rgba(255,255,255,.5)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  });
+  return _softTex;
+}
+/**
+ * 低面化处理：转为非索引几何并重算法线。
+ * 非索引 + computeVertexNormals = 每个三角面独立法线，即"硬边低面"外观；
+ * 这一步必须在导出 GLTF 之前做，法线才会被写进模型的 NORMAL 属性里。
+ */
+function facet(geo){
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  g.computeVertexNormals();
+  return g;
+}
+
+/* 全局输入状态 */
+const keys  = new Set();
+const mouse = { x: 0, y: 0, px: innerWidth / 2, py: innerHeight / 2 };
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+
+/* =====================================================================
+ * §2 音频管理器 —— WebAudio 实时合成，无需任何音频素材文件
+ * ===================================================================== */
+class AudioManager {
+  constructor(){
+    this.ctx = null; this.master = null; this.muted = false;
+  }
+  /** 必须在用户手势中调用（浏览器自动播放策略） */
+  init(){
+    if(this.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.5;
+    this.master.connect(this.ctx.destination);
+  }
+  toggleMute(){
+    this.muted = !this.muted;
+    if(this.master) this.master.gain.value = this.muted ? 0 : 0.5;
+    return this.muted;
+  }
+  /** 单音（可选频率滑音） */
+  tone(freq, dur, type = 'sine', gain = 0.2, slideTo = null, delay = 0){
+    if(!this.ctx || this.muted) return;
+    const t0 = this.ctx.currentTime + delay;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if(slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), t0 + dur);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+    osc.connect(g); g.connect(this.master);
+    osc.start(t0); osc.stop(t0 + dur + 0.02);
+  }
+  /** 噪声（带通/低通）—— 扑翼、沙沙声 */
+  noise(dur, gain = 0.15, freq = 1200, q = 1, delay = 0){
+    if(!this.ctx || this.muted) return;
+    const t0 = this.ctx.currentTime + delay;
+    const n = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = q;
+    const g = this.ctx.createGain(); g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.start(t0);
+  }
+  /** 啄食：短促的"笃" */
+  peck(){ this.noise(0.045, 0.16, 2600, 1.4); this.tone(760, 0.05, 'triangle', 0.08, 380); }
+  /** 咽下：轻快的上行音 */
+  eat(){ this.tone(880, 0.07, 'sine', 0.11); this.tone(1320, 0.09, 'sine', 0.08, null, 0.05); }
+  /** 扑翼 */
+  flap(v = 1){ this.noise(0.16, 0.12 * v, 620, 0.8); }
+  /** 起跳 */
+  hop(){ this.tone(420, 0.13, 'sine', 0.11, 700); this.noise(0.1, 0.07, 900, 1); }
+  /** 珠颈斑鸠的"咕—咕"（两声低沉颤音） */
+  coo(){
+    const f = rand(480, 540);
+    this.tone(f, 0.30, 'sine', 0.10, f * 0.94);
+    this.tone(f * 0.97, 0.42, 'sine', 0.085, f * 0.88, 0.30);
+  }
+  /** 被扫帚打到 */
+  hurt(){ this.tone(300, 0.3, 'sawtooth', 0.14, 90); this.noise(0.25, 0.12, 400, 0.7); }
+  /** 扫帚预警 */
+  alert(){ this.tone(1050, 0.1, 'square', 0.09); this.tone(1050, 0.1, 'square', 0.09, null, 0.15); }
+  /** 坠楼 */
+  fall(){ this.tone(700, 1.0, 'sine', 0.12, 90); }
+  /** 成长完成：上行琶音 + 长音铺底 */
+  win(){
+    [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.40, 'triangle', 0.13, null, i * 0.16));
+    this.tone(1568, 1.5, 'sine', 0.10, null, 0.72);
+    this.tone(784, 1.7, 'sine', 0.07, 762, 0.72);
+  }
+}
+
+/* =====================================================================
+ * §3 模型工厂 + GLTF 管线
+ *    —— 程序化生成低面写实模型，再经 GLTFExporter 导出 GLB、
+ *       GLTFLoader 读回，与接入外部 .glb 模型的流程完全一致。
+ * ===================================================================== */
+
+/** GLTF 管线：object -> GLB ArrayBuffer -> 加载后的 gltf.scene */
+async function gltfRoundtrip(obj){
+  const exporter = new GLTFExporter();
+  const glb = await new Promise((res, rej) => exporter.parse(obj, res, rej, { binary: true }));
+  const loader = new GLTFLoader();
+  const gltf = await new Promise((res, rej) => loader.parse(glb, '', res, rej));
+  return gltf.scene;
+}
+
+/* ---------------------------------------------------------------------
+ * 可落脚平台表（世界坐标，单位约等于米；y 为台面顶面高度）
+ *   设计：窗台/腰线在楼层线上（y=0/3/6/9），空调外机、花架、雨棚吊在
+ *   层间——这正是老小区立面的真实形态。相邻台面的高度差控制在
+ *   1.15 以内（小于扑跳抬升 ~1.30），而不相邻的台面差 ≥1.85，
+ *   保证只能沿设定路线往上爬，抄近路跳不上去。
+ * ------------------------------------------------------------------- */
+const PLATFORMS = [
+  { id:'A', name:'一楼窗台',   y:0.00, x0:-6.40, x1:-0.60, z0:0, z1:1.70, kind:'sill',   millet:6  },
+  { id:'B', name:'空调外机',   y:1.05, x0: 0.00, x1: 1.55, z0:0, z1:1.05, kind:'ac',     millet:4  },
+  { id:'C', name:'花架',       y:2.05, x0: 2.05, x1: 3.45, z0:0, z1:0.75, kind:'flower', millet:4  },
+  { id:'E', name:'二楼长窗台', y:3.00, x0:-6.40, x1: 7.60, z0:0, z1:1.70, kind:'sill',   millet:14 },
+  { id:'F', name:'空调外机',   y:4.15, x0: 5.80, x1: 7.45, z0:0, z1:1.05, kind:'ac',     millet:4  },
+  { id:'G', name:'雨棚',       y:5.30, x0: 3.20, x1: 5.40, z0:0, z1:1.20, kind:'awning', millet:4  },
+  { id:'H', name:'三楼长窗台', y:6.00, x0:-6.40, x1: 3.80, z0:0, z1:1.70, kind:'sill',   millet:8  },
+  { id:'I', name:'空调外机',   y:7.15, x0:-4.70, x1:-3.10, z0:0, z1:1.05, kind:'ac',     millet:4  },
+  { id:'J', name:'顶层雨棚',   y:8.30, x0:-6.40, x1:-1.00, z0:0, z1:1.40, kind:'awning', millet:6  }
+];
+const MILLET_TOTAL = PLATFORMS.reduce((s, p) => s + p.millet, 0);
+
+/** 立面窗户网格：层线（窗台高度）与每层的窗列位置 */
+const FLOOR_LINES = [-9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 21];
+const COL_CENTERS  = [-27.0, -24.3, -21.6, -18.9, -16.2, -13.5, -10.8, -8.1,
+                      -5.4, -2.7, 0.0, 2.7, 5.4, 8.1, 10.8, 13.5, 16.2, 18.9, 21.6, 24.3, 27.0];
+const WIN_W = 1.66, WIN_H = 1.60, SILL_Y_OFF = 0.14;   // 窗户坐在层线上方 0.14
+
+const Factory = {
+  /**
+   * 珠颈斑鸠（Streptopelia chinensis）成鸟，面朝 +Z，脚底在 y=0。
+   * 真实特征逐项还原，刻意避免卡通化：
+   *   · 头灰、上体灰褐、胸腹葡萄粉灰 —— 三种低饱和羽色
+   *   · 颈侧/后颈黑色领环 + 成排白色珠点（"珠颈"由来）
+   *   · 喙暗灰、虹膜橙红、脚紫红
+   *   · 眼睛很小（约头径 1/5），不做卡通大眼
+   *   · 尾巴长（约占体长 1/3），外侧尾羽具白端
+   */
+  dove(){
+    const backM   = new THREE.MeshStandardMaterial({ name:'back',   color:0xa89e93, roughness:0.88 });
+    const wingM   = new THREE.MeshStandardMaterial({ name:'wing',   color:0x998f85, roughness:0.86 });
+    const flightM = new THREE.MeshStandardMaterial({ name:'flight', color:0x5d554e, roughness:0.8  });
+    const breastM = new THREE.MeshStandardMaterial({ name:'breast', color:0xceb9b3, roughness:0.85 });
+    const bellyM  = new THREE.MeshStandardMaterial({ name:'belly',  color:0xe5dcd3, roughness:0.85 });
+    const headM   = new THREE.MeshStandardMaterial({ name:'head',   color:0xb9b3b1, roughness:0.85 });
+    const collarM = new THREE.MeshStandardMaterial({ name:'collar', color:0x1b1919, roughness:0.72 });
+    const spotM   = new THREE.MeshStandardMaterial({ name:'spot',   color:0xf1ede3, roughness:0.7  });
+    const beakM   = new THREE.MeshStandardMaterial({ name:'beak',   color:0x2b2a2c, roughness:0.42 });
+    const eyeM    = new THREE.MeshStandardMaterial({ name:'eye',    color:0x0c0b0c, roughness:0.16 });
+    const irisM   = new THREE.MeshStandardMaterial({ name:'iris',   color:0xb8622c, roughness:0.35 });
+    const legM    = new THREE.MeshStandardMaterial({ name:'leg',    color:0xb05a68, roughness:0.68 });
+    const tailM   = new THREE.MeshStandardMaterial({ name:'tail',   color:0x756b63, roughness:0.85 });
+    const tipM    = new THREE.MeshStandardMaterial({ name:'tailTip',color:0xe2dcd3, roughness:0.8  });
+
+    const root = new THREE.Group(); root.name = 'dove';
+    // body 组承担俯仰/侧倾/呼吸缩放，root 只负责位置与朝向
+    const body = new THREE.Group(); body.name = 'body'; root.add(body);
+    /* 身体各部件统一离地 0.02，好让站姿露出腿——鸽子站着时腹部离地是有空隙的 */
+    const LIFT = 0.020;
+
+    /* ---- 躯干：上体灰褐 + 胸前葡萄粉 + 腹部偏白（三层叠套出羽色分区） ---- */
+    const torsoG = new THREE.SphereGeometry(0.105, 14, 10);
+    torsoG.scale(1.02, 0.94, 1.42);
+    const torso = new THREE.Mesh(facet(torsoG), backM);
+    torso.position.y = 0.112 + LIFT; torso.name = 'torso'; body.add(torso);
+
+    const breastG = new THREE.SphereGeometry(0.088, 12, 9);
+    breastG.scale(0.96, 1.0, 1.12);
+    const breast = new THREE.Mesh(facet(breastG), breastM);
+    breast.position.set(0, 0.096 + LIFT, 0.050); breast.name = 'breast'; body.add(breast);
+
+    const bellyG = new THREE.SphereGeometry(0.070, 10, 8);
+    bellyG.scale(0.92, 0.72, 1.20);
+    const belly = new THREE.Mesh(facet(bellyG), bellyM);
+    belly.position.set(0, 0.056 + LIFT, 0.012); belly.name = 'belly'; body.add(belly);
+
+    /* ---- 颈与颈领 ----
+       头要抬高一点、往前挪一点，颈根才露得出来，"珠颈"才有地方画。
+       颈锥沿自身轴倾斜 0.84 弧度（头略前倾于身体，鸽类的典型姿态）。 */
+    const neckG = new THREE.CylinderGeometry(0.048, 0.062, 0.085, 10);
+    neckG.rotateX(0.84);
+    const neck = new THREE.Mesh(facet(neckG), headM);
+    neck.position.set(0, 0.200 + LIFT, 0.122); neck.name = 'neck'; body.add(neck);
+
+    const collar = new THREE.Group(); collar.name = 'collar';
+    collar.position.set(0, 0.187 + LIFT, 0.107); collar.rotation.x = 0.84; body.add(collar);
+    // 开口圆柱：theta=0 朝 +Z(前)，留出前方 1.16 弧度的喉部不覆盖
+    const bandG = new THREE.CylinderGeometry(0.060, 0.060, 0.048, 14, 1, true, 0.58, Math.PI * 2 - 1.16);
+    const band = new THREE.Mesh(facet(bandG), collarM);
+    band.name = 'collarBand'; collar.add(band);
+    // 珠点：三排白色小珠，沿颈领弧面均匀分布（靠后的排点数少、珠子略大）
+    const spotRows = [
+      { y: -0.013, n: 7, r: 0.0066 },
+      { y:  0.001, n: 7, r: 0.0076 },
+      { y:  0.014, n: 6, r: 0.0068 }
+    ];
+    for(const row of spotRows){
+      const span = Math.PI * 2 - 1.75;                 // 珠点覆盖的弧度范围
+      for(let i = 0; i < row.n; i++){
+        const th = 0.875 + span * (i / (row.n - 1));
+        const g = new THREE.SphereGeometry(row.r, 6, 5);
+        g.scale(1, 0.82, 1);
+        const s = new THREE.Mesh(facet(g), spotM);
+        s.position.set(Math.sin(th) * 0.0625, row.y, Math.cos(th) * 0.0625);
+        collar.add(s);
+      }
+    }
+
+    /* ---- 头 ---- */
+    const headG = new THREE.Group(); headG.name = 'headG';
+    headG.position.set(0, 0.225 + LIFT, 0.150); body.add(headG);
+    const skullG = new THREE.SphereGeometry(0.056, 12, 9);
+    skullG.scale(1.0, 0.98, 1.10);
+    const skull = new THREE.Mesh(facet(skullG), headM);
+    skull.name = 'head'; headG.add(skull);
+
+    // 喙：细长、微下弯的暗灰喙（旋转 -90° 让圆锥指向 +Z）
+    const beakG = new THREE.ConeGeometry(0.0155, 0.075, 7);
+    beakG.rotateX(Math.PI / 2);
+    const beak = new THREE.Mesh(facet(beakG), beakM);
+    beak.position.set(0, -0.008, 0.078); beak.name = 'beak'; headG.add(beak);
+
+    // 眼：小眼球 + 橙红虹膜环（真实珠颈斑鸠的虹膜为橙红色）
+    for(const s of [-1, 1]){
+      const eye = new THREE.Mesh(facet(new THREE.SphereGeometry(0.0098, 8, 6)), eyeM);
+      eye.position.set(0.038 * s, 0.014, 0.034); eye.name = 'eye'; headG.add(eye);
+      const ring = new THREE.Mesh(
+        facet(new THREE.TorusGeometry(0.0104, 0.0024, 4, 10)),
+        irisM
+      );
+      ring.position.set(0.0405 * s, 0.014, 0.0315);
+      ring.rotation.y = s * Math.PI / 2;
+      headG.add(ring);
+    }
+
+    /* ---- 尾：长尾 + 外侧尾羽白端 ---- */
+    const tail = new THREE.Group(); tail.name = 'tail';
+    tail.position.set(0, 0.104 + LIFT, -0.140); body.add(tail);
+    const tailG = new THREE.BoxGeometry(0.058, 0.014, 0.170);
+    const tailM0 = new THREE.Mesh(facet(tailG), tailM);
+    tailM0.position.set(0, 0, -0.085); tailM0.rotation.x = -0.10; tail.add(tailM0);
+    for(const s of [-1, 1]){
+      const t = new THREE.Mesh(facet(new THREE.BoxGeometry(0.017, 0.010, 0.052)), tipM);
+      t.position.set(0.019 * s, 0.002, -0.168); t.rotation.x = -0.10; tail.add(t);
+      const e = new THREE.Mesh(facet(new THREE.BoxGeometry(0.012, 0.011, 0.070)), tailM);
+      e.position.set(0.028 * s, -0.001, -0.100); e.rotation.x = -0.08; tail.add(e);
+    }
+
+    /* ---- 翼：折叠沿体侧，翼尖伸向尾基；=局部 +X 为翼展方向 ---- */
+    for(const s of [-1, 1]){
+      const wing = new THREE.Group();
+      wing.name = s < 0 ? 'wingL' : 'wingR';
+      wing.position.set(0.093 * s, 0.150 + LIFT, 0.005);
+      body.add(wing);
+
+      const shoulderG = new THREE.SphereGeometry(0.032, 8, 6);
+      shoulderG.scale(0.8, 0.62, 1.35);
+      const shoulder = new THREE.Mesh(facet(shoulderG), wingM);
+      shoulder.position.set(0.002 * s, 0.010, 0.014); wing.add(shoulder);
+
+      const covG = new THREE.BoxGeometry(0.028, 0.038, 0.132);
+      const cov = new THREE.Mesh(facet(covG), wingM);
+      cov.position.set(0.005 * s, -0.002, -0.008);
+      cov.rotation.y = -0.06 * s;
+      wing.add(cov);
+
+      const priG = new THREE.BoxGeometry(0.020, 0.016, 0.175);
+      const pri = new THREE.Mesh(facet(priG), flightM);
+      pri.position.set(0.008 * s, -0.014, -0.112);
+      pri.rotation.set(0.05, -0.10 * s, -0.02 * s);
+      wing.add(pri);
+    }
+
+    /* ---- 腿脚：紫红短腿（随身体一起加长，站姿才立得起来） ---- */
+    for(const s of [-1, 1]){
+      const leg = new THREE.Group();
+      leg.name = s < 0 ? 'legL' : 'legR';
+      leg.position.set(0.032 * s, 0.052 + LIFT, 0.014);
+      body.add(leg);
+      const tar = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.0052, 0.0056, 0.052 + LIFT, 6)), legM);
+      tar.position.y = -(0.052 + LIFT) / 2; leg.add(tar);
+      const foot = new THREE.Mesh(facet(new THREE.BoxGeometry(0.026, 0.005, 0.042)), legM);
+      foot.position.set(0, -(0.052 + LIFT), 0.010); leg.add(foot);
+      const back = new THREE.Mesh(facet(new THREE.BoxGeometry(0.008, 0.005, 0.020)), legM);
+      back.position.set(0, -(0.052 + LIFT), -0.012); leg.add(back);
+    }
+    return root;
+  },
+
+  /**
+   * 山斑鸠（Streptopelia orientalis）成鸟，面朝 +Z。
+   * 与珠颈斑鸠同属但野外特征完全不同，逐项还原：
+   *   · 翼覆羽具锈红色羽缘，形成"鳞片状"斑纹（最醒目的识别点）
+   *   · 颈侧为白底黑色横条纹斑块，而不是珠点
+   *   · 翼上有一块蓝灰色斑；头顶偏蓝灰、胸葡萄粉、腹白
+   *   · 尾羽末端有浅灰色横带
+   *   · 体型比珠颈斑鸠略大
+   */
+  turtleDove(){
+    const headM   = new THREE.MeshStandardMaterial({ name:'tdHead',   color:0xa9b0b8, roughness:0.86 });
+    const backM   = new THREE.MeshStandardMaterial({ name:'tdBack',   color:0x6f6152, roughness:0.88 });
+    const scaleA  = new THREE.MeshStandardMaterial({ name:'tdScaleA', color:0xb06a38, roughness:0.85 }); // 锈红羽缘
+    const scaleB  = new THREE.MeshStandardMaterial({ name:'tdScaleB', color:0x51453a, roughness:0.85 }); // 深色羽心
+    const breastM = new THREE.MeshStandardMaterial({ name:'tdBreast', color:0xc9a9a2, roughness:0.85 });
+    const bellyM  = new THREE.MeshStandardMaterial({ name:'tdBelly',  color:0xefeae2, roughness:0.85 });
+    const blueM   = new THREE.MeshStandardMaterial({ name:'tdBlue',   color:0x93a0aa, roughness:0.78 }); // 翼上蓝灰斑
+    const patchM  = new THREE.MeshStandardMaterial({ name:'tdPatch',  color:0xe8e4dc, roughness:0.75 }); // 颈侧白底
+    const barM    = new THREE.MeshStandardMaterial({ name:'tdBar',    color:0x1a1716, roughness:0.7  });
+    const beakM   = new THREE.MeshStandardMaterial({ name:'tdBeak',   color:0x3a3632, roughness:0.45 });
+    const eyeM    = new THREE.MeshStandardMaterial({ name:'tdEye',    color:0x0d0c0c, roughness:0.16 });
+    const irisM   = new THREE.MeshStandardMaterial({ name:'tdIris',   color:0xc08a3a, roughness:0.35 });
+    const legM    = new THREE.MeshStandardMaterial({ name:'tdLeg',    color:0xb2636a, roughness:0.68 });
+    const tailM   = new THREE.MeshStandardMaterial({ name:'tdTail',   color:0x4b433d, roughness:0.85 });
+    const tipM    = new THREE.MeshStandardMaterial({ name:'tdTip',    color:0xb9b3aa, roughness:0.8  });
+
+    const root = new THREE.Group(); root.name = 'turtleDove';
+    const body = new THREE.Group(); body.name = 'body'; root.add(body);
+    const LIFT = 0.020;
+
+    /* ---- 躯干 ---- */
+    const torsoG = new THREE.SphereGeometry(0.113, 14, 10);
+    torsoG.scale(1.02, 0.94, 1.42);
+    const torso = new THREE.Mesh(facet(torsoG), backM);
+    torso.position.y = 0.120 + LIFT; torso.name = 'torso'; body.add(torso);
+
+    const breastG = new THREE.SphereGeometry(0.094, 12, 9);
+    breastG.scale(0.96, 1.0, 1.12);
+    const breast = new THREE.Mesh(facet(breastG), breastM);
+    breast.position.set(0, 0.104 + LIFT, 0.054); breast.name = 'breast'; body.add(breast);
+
+    const bellyG = new THREE.SphereGeometry(0.075, 10, 8);
+    bellyG.scale(0.92, 0.72, 1.18);
+    const belly = new THREE.Mesh(facet(bellyG), bellyM);
+    belly.position.set(0, 0.060 + LIFT, 0.014); belly.name = 'belly'; body.add(belly);
+
+    /* ---- 颈 + 颈侧黑白条纹斑 ---- */
+    const neckG = new THREE.CylinderGeometry(0.050, 0.066, 0.090, 10);
+    neckG.rotateX(0.84);
+    const neck = new THREE.Mesh(facet(neckG), headM);
+    neck.position.set(0, 0.214 + LIFT, 0.130); neck.name = 'neck'; body.add(neck);
+
+    const collar = new THREE.Group(); collar.name = 'collar';
+    collar.position.set(0, 0.200 + LIFT, 0.114); collar.rotation.x = 0.84; body.add(collar);
+    for(const s of [-1, 1]){                            // 两块白底黑横纹，贴在颈侧
+      const plate = new THREE.Mesh(facet(new THREE.BoxGeometry(0.014, 0.052, 0.046)), patchM);
+      plate.position.set(s * 0.056, 0.002, -0.004);
+      plate.rotation.z = s * 0.10;
+      collar.add(plate);
+      for(let i = 0; i < 3; i++){                       // 三道黑横纹
+        const bar = new THREE.Mesh(facet(new THREE.BoxGeometry(0.016, 0.006, 0.040)), barM);
+        bar.position.set(s * 0.060, -0.014 + i * 0.016, -0.004);
+        bar.rotation.z = s * 0.10;
+        collar.add(bar);
+      }
+    }
+
+    /* ---- 头 ---- */
+    const headG = new THREE.Group(); headG.name = 'headG';
+    headG.position.set(0, 0.240 + LIFT, 0.158); body.add(headG);
+    const skullG = new THREE.SphereGeometry(0.058, 12, 9);
+    skullG.scale(1.0, 0.98, 1.10);
+    const skull = new THREE.Mesh(facet(skullG), headM); skull.name = 'head'; headG.add(skull);
+    const beakG = new THREE.ConeGeometry(0.016, 0.078, 7);
+    beakG.rotateX(Math.PI / 2);
+    const beak = new THREE.Mesh(facet(beakG), beakM);
+    beak.position.set(0, -0.008, 0.080); beak.name = 'beak'; headG.add(beak);
+    for(const s of [-1, 1]){
+      const eye = new THREE.Mesh(facet(new THREE.SphereGeometry(0.0102, 8, 6)), eyeM);
+      eye.position.set(0.040 * s, 0.014, 0.036); headG.add(eye);
+      const ring = new THREE.Mesh(facet(new THREE.TorusGeometry(0.0108, 0.0024, 4, 10)), irisM);
+      ring.position.set(0.0425 * s, 0.014, 0.0335); ring.rotation.y = s * Math.PI / 2;
+      headG.add(ring);
+    }
+
+    /* ---- 尾：末端浅灰横带 ---- */
+    const tail = new THREE.Group(); tail.name = 'tail';
+    tail.position.set(0, 0.112 + LIFT, -0.150); body.add(tail);
+    const tailBase = new THREE.Mesh(facet(new THREE.BoxGeometry(0.064, 0.015, 0.185)), tailM);
+    tailBase.position.set(0, 0, -0.092); tailBase.rotation.x = -0.10; tail.add(tailBase);
+    const tailTip = new THREE.Mesh(facet(new THREE.BoxGeometry(0.060, 0.013, 0.048)), tipM);
+    tailTip.position.set(0, -0.002, -0.205); tailTip.rotation.x = -0.10; tail.add(tailTip);
+
+    /* ---- 翼：鳞状覆羽 + 蓝灰翼斑 ---- */
+    for(const s of [-1, 1]){
+      const wing = new THREE.Group();
+      wing.name = s < 0 ? 'wingL' : 'wingR';
+      wing.position.set(0.100 * s, 0.160 + LIFT, 0.005);
+      body.add(wing);
+
+      const shoulderG = new THREE.SphereGeometry(0.034, 8, 6);
+      shoulderG.scale(0.8, 0.62, 1.35);
+      const shoulder = new THREE.Mesh(facet(shoulderG), backM);
+      shoulder.position.set(0.002 * s, 0.010, 0.016); wing.add(shoulder);
+
+      // 蓝灰翼斑（山斑鸠的翼上蓝灰区）
+      const blue = new THREE.Mesh(facet(new THREE.BoxGeometry(0.030, 0.026, 0.062)), blueM);
+      blue.position.set(0.008 * s, 0.008, 0.008); blue.rotation.y = -0.06 * s; wing.add(blue);
+
+      // 两排"鳞片"：锈红羽缘 + 深色羽心交错，从肩往翼尖铺
+      for(let row = 0; row < 2; row++){
+        for(let i = 0; i < 4; i++){
+          const mat = (i + row) % 2 === 0 ? scaleA : scaleB;
+          const sc = new THREE.Mesh(facet(new THREE.BoxGeometry(0.026, 0.020, 0.030)), mat);
+          sc.position.set((0.006 + row * 0.004) * s, -0.006 - row * 0.012, -0.020 - i * 0.028);
+          sc.rotation.y = -0.10 * s;
+          wing.add(sc);
+        }
+      }
+      // 飞羽
+      const pri = new THREE.Mesh(facet(new THREE.BoxGeometry(0.022, 0.017, 0.170)), scaleB);
+      pri.position.set(0.010 * s, -0.030, -0.118);
+      pri.rotation.set(0.05, -0.10 * s, -0.02 * s);
+      wing.add(pri);
+    }
+
+    /* ---- 腿脚 ---- */
+    for(const s of [-1, 1]){
+      const leg = new THREE.Group();
+      leg.name = s < 0 ? 'legL' : 'legR';
+      leg.position.set(0.034 * s, 0.052 + LIFT, 0.015);
+      body.add(leg);
+      const tar = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.0056, 0.0060, 0.052 + LIFT, 6)), legM);
+      tar.position.y = -(0.052 + LIFT) / 2; leg.add(tar);
+      const foot = new THREE.Mesh(facet(new THREE.BoxGeometry(0.028, 0.005, 0.044)), legM);
+      foot.position.set(0, -(0.052 + LIFT), 0.010); leg.add(foot);
+      const back = new THREE.Mesh(facet(new THREE.BoxGeometry(0.008, 0.005, 0.021)), legM);
+      back.position.set(0, -(0.052 + LIFT), -0.013); leg.add(back);
+    }
+    return root;
+  },
+
+  /**
+   * 麻雀（Passer montanus）成鸟，面朝 +Z。体型只有斑鸠的四成左右。
+   * 识别点：栗色头顶与后颈、白色脸颊上有一块黑斑、黑色喉斑、
+   *        棕褐色带纵纹的背、翼上两道浅色翼斑、短粗的圆锥形黑喙。
+   */
+  sparrow(){
+    const crownM  = new THREE.MeshStandardMaterial({ name:'spCrown',  color:0x8a5a34, roughness:0.88 });
+    const backM   = new THREE.MeshStandardMaterial({ name:'spBack',   color:0x8a7355, roughness:0.88 });
+    const streakM = new THREE.MeshStandardMaterial({ name:'spStreak', color:0x5b4632, roughness:0.88 });
+    const cheekM  = new THREE.MeshStandardMaterial({ name:'spCheek',  color:0xe7e3d8, roughness:0.85 });
+    const bibM    = new THREE.MeshStandardMaterial({ name:'spBib',    color:0x1a1614, roughness:0.75 });
+    const bellyM  = new THREE.MeshStandardMaterial({ name:'spBelly',  color:0xd9d0c1, roughness:0.85 });
+    const barM    = new THREE.MeshStandardMaterial({ name:'spBar',    color:0xc9bda6, roughness:0.85 });
+    const wingM   = new THREE.MeshStandardMaterial({ name:'spWing',   color:0x5f4c38, roughness:0.88 });
+    const beakM   = new THREE.MeshStandardMaterial({ name:'spBeak',   color:0x35302c, roughness:0.45 });
+    const eyeM    = new THREE.MeshStandardMaterial({ name:'spEye',    color:0x0c0b0b, roughness:0.16 });
+    const legM    = new THREE.MeshStandardMaterial({ name:'spLeg',    color:0xa8705c, roughness:0.7  });
+
+    const root = new THREE.Group(); root.name = 'sparrow';
+    const body = new THREE.Group(); body.name = 'body'; root.add(body);
+
+    const torsoG = new THREE.SphereGeometry(0.052, 12, 9);
+    torsoG.scale(1.0, 0.96, 1.36);
+    const torso = new THREE.Mesh(facet(torsoG), backM);
+    torso.position.y = 0.070; torso.name = 'torso'; body.add(torso);
+    const bellyG = new THREE.SphereGeometry(0.044, 10, 8);
+    bellyG.scale(0.94, 0.78, 1.20);
+    const belly = new THREE.Mesh(facet(bellyG), bellyM);
+    belly.position.set(0, 0.056, 0.008); belly.name = 'belly'; body.add(belly);
+
+    // 背部的深色纵纹
+    for(let i = 0; i < 3; i++){
+      const st = new THREE.Mesh(facet(new THREE.BoxGeometry(0.010, 0.006, 0.080)), streakM);
+      st.position.set(-0.016 + i * 0.016, 0.112, -0.010);
+      st.rotation.x = -0.08;
+      body.add(st);
+    }
+
+    const headG = new THREE.Group(); headG.name = 'headG';
+    headG.position.set(0, 0.118, 0.072); body.add(headG);
+    const skullG = new THREE.SphereGeometry(0.036, 11, 8);
+    skullG.scale(1.0, 0.98, 1.06);
+    const skull = new THREE.Mesh(facet(skullG), backM); skull.name = 'head'; headG.add(skull);
+    // 栗色头顶与后颈
+    const capG = new THREE.SphereGeometry(0.037, 11, 7, 0, Math.PI * 2, 0, 1.35);
+    const cap = new THREE.Mesh(facet(capG), crownM);
+    cap.position.y = 0.004; cap.name = 'cap'; headG.add(cap);
+    // 白色脸颊 + 黑耳斑
+    for(const s of [-1, 1]){
+      const cheek = new THREE.Mesh(facet(new THREE.BoxGeometry(0.012, 0.024, 0.026)), cheekM);
+      cheek.position.set(0.030 * s, 0.002, 0.014); headG.add(cheek);
+      const spot = new THREE.Mesh(facet(new THREE.BoxGeometry(0.010, 0.013, 0.011)), bibM);
+      spot.position.set(0.033 * s, -0.001, 0.030); headG.add(spot);
+    }
+    // 黑色喉斑
+    const bib = new THREE.Mesh(facet(new THREE.BoxGeometry(0.024, 0.014, 0.016)), bibM);
+    bib.position.set(0, -0.020, 0.028); headG.add(bib);
+    // 短粗圆锥喙
+    const beakG = new THREE.ConeGeometry(0.0125, 0.030, 7);
+    beakG.rotateX(Math.PI / 2);
+    const beak = new THREE.Mesh(facet(beakG), beakM);
+    beak.position.set(0, -0.008, 0.042); beak.name = 'beak'; headG.add(beak);
+    for(const s of [-1, 1]){
+      const eye = new THREE.Mesh(facet(new THREE.SphereGeometry(0.0058, 7, 5)), eyeM);
+      eye.position.set(0.024 * s, 0.008, 0.020); headG.add(eye);
+    }
+
+    const tail = new THREE.Group(); tail.name = 'tail';
+    tail.position.set(0, 0.072, -0.070); body.add(tail);
+    const tailM0 = new THREE.Mesh(facet(new THREE.BoxGeometry(0.032, 0.010, 0.082)), wingM);
+    tailM0.position.set(0, 0, -0.040); tailM0.rotation.x = -0.12; tail.add(tailM0);
+
+    for(const s of [-1, 1]){
+      const wing = new THREE.Group();
+      wing.name = s < 0 ? 'wingL' : 'wingR';
+      wing.position.set(0.046 * s, 0.088, 0.002);
+      body.add(wing);
+      const cov = new THREE.Mesh(facet(new THREE.BoxGeometry(0.020, 0.028, 0.058)), backM);
+      cov.position.set(0.002 * s, -0.004, -0.008); wing.add(cov);
+      // 翼上两道浅色翼斑
+      for(let i = 0; i < 2; i++){
+        const bar = new THREE.Mesh(facet(new THREE.BoxGeometry(0.022, 0.006, 0.030)), barM);
+        bar.position.set(0.003 * s, -0.012 - i * 0.010, -0.020 - i * 0.014);
+        wing.add(bar);
+      }
+      const pri = new THREE.Mesh(facet(new THREE.BoxGeometry(0.014, 0.010, 0.062)), wingM);
+      pri.position.set(0.004 * s, -0.018, -0.052); pri.rotation.x = 0.05; wing.add(pri);
+    }
+
+    for(const s of [-1, 1]){
+      const leg = new THREE.Group();
+      leg.name = s < 0 ? 'legL' : 'legR';
+      leg.position.set(0.019 * s, 0.036, 0.010);
+      body.add(leg);
+      const tar = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.0032, 0.0034, 0.036, 5)), legM);
+      tar.position.y = -0.018; leg.add(tar);
+      const foot = new THREE.Mesh(facet(new THREE.BoxGeometry(0.016, 0.0035, 0.026)), legM);
+      foot.position.set(0, -0.036, 0.007); leg.add(foot);
+      const back = new THREE.Mesh(facet(new THREE.BoxGeometry(0.005, 0.0035, 0.013)), legM);
+      back.position.set(0, -0.036, -0.010); leg.add(back);
+    }
+    return root;
+  },
+
+  /**
+   * 喜鹊（Pica pica）成鸟，面朝 +Z。游戏里最大的鸟。
+   * 识别点：头胸背与尾为带蓝绿金属光泽的黑色、腹部纯白、
+   *        翼上两块白色肩斑、极长的楔形尾、粗壮的黑色喙。
+   */
+  magpie(){
+    const blackM  = new THREE.MeshStandardMaterial({ name:'mgBlack', color:0x14161c,
+                                                     roughness:0.34, metalness:0.36 });  // 现蓝绿光泽
+    const whiteM  = new THREE.MeshStandardMaterial({ name:'mgWhite', color:0xeceae4, roughness:0.8 });
+    const beakM   = new THREE.MeshStandardMaterial({ name:'mgBeak',  color:0x101012, roughness:0.3 });
+    const eyeM    = new THREE.MeshStandardMaterial({ name:'mgEye',   color:0x0a0a0b, roughness:0.14 });
+    const legM    = new THREE.MeshStandardMaterial({ name:'mgLeg',   color:0x1a1a1c, roughness:0.6  });
+
+    const root = new THREE.Group(); root.name = 'magpie';
+    const body = new THREE.Group(); body.name = 'body'; root.add(body);
+    const LIFT = 0.030;
+
+    const torsoG = new THREE.SphereGeometry(0.115, 14, 10);
+    torsoG.scale(1.0, 0.92, 1.46);
+    const torso = new THREE.Mesh(facet(torsoG), blackM);
+    torso.position.y = 0.150 + LIFT; torso.name = 'torso'; body.add(torso);
+    // 纯白的腹部
+    const bellyG = new THREE.SphereGeometry(0.092, 12, 9);
+    bellyG.scale(0.94, 0.86, 1.17);
+    const belly = new THREE.Mesh(facet(bellyG), whiteM);
+    belly.position.set(0, 0.116 + LIFT, 0.012); belly.name = 'belly'; body.add(belly);
+
+    const neckG = new THREE.CylinderGeometry(0.056, 0.076, 0.080, 10);
+    neckG.rotateX(0.70);
+    const neck = new THREE.Mesh(facet(neckG), blackM);
+    neck.position.set(0, 0.248 + LIFT, 0.128); neck.name = 'neck'; body.add(neck);
+
+    const headG = new THREE.Group(); headG.name = 'headG';
+    headG.position.set(0, 0.286 + LIFT, 0.156); body.add(headG);
+    const skullG = new THREE.SphereGeometry(0.064, 12, 9);
+    skullG.scale(1.0, 0.98, 1.08);
+    const skull = new THREE.Mesh(facet(skullG), blackM); skull.name = 'head'; headG.add(skull);
+    const beakG = new THREE.ConeGeometry(0.021, 0.088, 7);
+    beakG.rotateX(Math.PI / 2);
+    const beak = new THREE.Mesh(facet(beakG), beakM);
+    beak.position.set(0, -0.010, 0.092); beak.name = 'beak'; headG.add(beak);
+    for(const s of [-1, 1]){
+      const eye = new THREE.Mesh(facet(new THREE.SphereGeometry(0.0105, 8, 6)), eyeM);
+      eye.position.set(0.044 * s, 0.012, 0.044); headG.add(eye);
+    }
+
+    // 极长的楔形尾
+    const tail = new THREE.Group(); tail.name = 'tail';
+    tail.position.set(0, 0.142 + LIFT, -0.166); body.add(tail);
+    const tailM0 = new THREE.Mesh(facet(new THREE.BoxGeometry(0.075, 0.018, 0.330)), blackM);
+    tailM0.position.set(0, 0, -0.165); tailM0.rotation.x = -0.06; tail.add(tailM0);
+    const tailEnd = new THREE.Mesh(facet(new THREE.BoxGeometry(0.090, 0.014, 0.070)), blackM);
+    tailEnd.position.set(0, -0.004, -0.340); tailEnd.rotation.x = -0.06; tail.add(tailEnd);
+
+    for(const s of [-1, 1]){
+      const wing = new THREE.Group();
+      wing.name = s < 0 ? 'wingL' : 'wingR';
+      wing.position.set(0.104 * s, 0.196 + LIFT, 0.004);
+      body.add(wing);
+      const cov = new THREE.Mesh(facet(new THREE.BoxGeometry(0.032, 0.042, 0.150)), blackM);
+      cov.position.set(0.005 * s, -0.004, -0.010); wing.add(cov);
+      // 白色肩斑
+      const scap = new THREE.Mesh(facet(new THREE.BoxGeometry(0.034, 0.030, 0.052)), whiteM);
+      scap.position.set(0.006 * s, 0.004, -0.062); scap.rotation.y = -0.08 * s; wing.add(scap);
+      const pri = new THREE.Mesh(facet(new THREE.BoxGeometry(0.024, 0.018, 0.215)), blackM);
+      pri.position.set(0.010 * s, -0.018, -0.150);
+      pri.rotation.set(0.04, -0.10 * s, -0.02 * s);
+      wing.add(pri);
+    }
+
+    for(const s of [-1, 1]){
+      const leg = new THREE.Group();
+      leg.name = s < 0 ? 'legL' : 'legR';
+      leg.position.set(0.040 * s, 0.070 + LIFT, 0.014);
+      body.add(leg);
+      const tar = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.0072, 0.0078, 0.070 + LIFT, 6)), legM);
+      tar.position.y = -(0.070 + LIFT) / 2; leg.add(tar);
+      const foot = new THREE.Mesh(facet(new THREE.BoxGeometry(0.034, 0.006, 0.052)), legM);
+      foot.position.set(0, -(0.070 + LIFT), 0.012); leg.add(foot);
+      const back = new THREE.Mesh(facet(new THREE.BoxGeometry(0.010, 0.006, 0.026)), legM);
+      back.position.set(0, -(0.070 + LIFT), -0.016); leg.add(back);
+    }
+    return root;
+  },
+
+  /**
+   * 丝光椋鸟（Spodiopsar sericeus）成鸟，面朝 +Z。
+   * 识别点：头与体羽丝光质感的浅灰、翼与尾纯黑、
+   *        翼上白斑、鲜红的喙、暗色脚；头顶略显蓬松。
+   */
+  starling(){
+    const silkM   = new THREE.MeshStandardMaterial({ name:'stSilk',  color:0xb9bcc0, roughness:0.72 });
+    const headM   = new THREE.MeshStandardMaterial({ name:'stHead',  color:0xccced2, roughness:0.7  });
+    const bellyM  = new THREE.MeshStandardMaterial({ name:'stBelly', color:0xd6d8da, roughness:0.75 });
+    const blackM  = new THREE.MeshStandardMaterial({ name:'stBlack', color:0x1c1e22, roughness:0.42, metalness:0.2 });
+    const patchM  = new THREE.MeshStandardMaterial({ name:'stPatch', color:0xe8e8e4, roughness:0.8 });
+    const beakM   = new THREE.MeshStandardMaterial({ name:'stBeak',  color:0xd4502f, roughness:0.4 });
+    const eyeM    = new THREE.MeshStandardMaterial({ name:'stEye',   color:0x0b0b0c, roughness:0.16 });
+    const legM    = new THREE.MeshStandardMaterial({ name:'stLeg',   color:0x51443c, roughness:0.72 });
+
+    const root = new THREE.Group(); root.name = 'starling';
+    const body = new THREE.Group(); body.name = 'body'; root.add(body);
+
+    const torsoG = new THREE.SphereGeometry(0.072, 13, 9);
+    torsoG.scale(1.0, 0.94, 1.42);
+    const torso = new THREE.Mesh(facet(torsoG), silkM);
+    torso.position.y = 0.094; torso.name = 'torso'; body.add(torso);
+    const bellyG = new THREE.SphereGeometry(0.060, 11, 8);
+    bellyG.scale(0.94, 0.80, 1.20);
+    const belly = new THREE.Mesh(facet(bellyG), bellyM);
+    belly.position.set(0, 0.076, 0.008); belly.name = 'belly'; body.add(belly);
+
+    const neckG = new THREE.CylinderGeometry(0.034, 0.046, 0.050, 9);
+    neckG.rotateX(0.72);
+    const neck = new THREE.Mesh(facet(neckG), headM);
+    neck.position.set(0, 0.148, 0.076); neck.name = 'neck'; body.add(neck);
+
+    const headG = new THREE.Group(); headG.name = 'headG';
+    headG.position.set(0, 0.176, 0.096); body.add(headG);
+    const skullG = new THREE.SphereGeometry(0.042, 11, 8);
+    skullG.scale(1.0, 0.96, 1.08);
+    const skull = new THREE.Mesh(facet(skullG), headM); skull.name = 'head'; headG.add(skull);
+    // 头顶略蓬松的羽冠
+    const crest = new THREE.Mesh(facet(new THREE.SphereGeometry(0.030, 9, 6)), headM);
+    crest.scale.set(1.0, 0.5, 1.25); crest.position.set(0, 0.030, -0.010);
+    crest.rotation.x = -0.25; headG.add(crest);
+    const beakG = new THREE.ConeGeometry(0.0115, 0.052, 7);
+    beakG.rotateX(Math.PI / 2);
+    const beak = new THREE.Mesh(facet(beakG), beakM);
+    beak.position.set(0, -0.006, 0.060); beak.name = 'beak'; headG.add(beak);
+    for(const s of [-1, 1]){
+      const eye = new THREE.Mesh(facet(new THREE.SphereGeometry(0.0068, 7, 5)), eyeM);
+      eye.position.set(0.028 * s, 0.010, 0.030); headG.add(eye);
+    }
+
+    const tail = new THREE.Group(); tail.name = 'tail';
+    tail.position.set(0, 0.094, -0.100); body.add(tail);
+    const tailM0 = new THREE.Mesh(facet(new THREE.BoxGeometry(0.044, 0.012, 0.120)), blackM);
+    tailM0.position.set(0, 0, -0.058); tailM0.rotation.x = -0.10; tail.add(tailM0);
+
+    for(const s of [-1, 1]){
+      const wing = new THREE.Group();
+      wing.name = s < 0 ? 'wingL' : 'wingR';
+      wing.position.set(0.064 * s, 0.118, 0.002);
+      body.add(wing);
+      const cov = new THREE.Mesh(facet(new THREE.BoxGeometry(0.024, 0.034, 0.086)), silkM);
+      cov.position.set(0.003 * s, -0.004, -0.010); wing.add(cov);
+      // 翼上白斑
+      const patch = new THREE.Mesh(facet(new THREE.BoxGeometry(0.024, 0.016, 0.032)), patchM);
+      patch.position.set(0.004 * s, -0.012, -0.052); wing.add(patch);
+      const pri = new THREE.Mesh(facet(new THREE.BoxGeometry(0.018, 0.012, 0.098)), blackM);
+      pri.position.set(0.005 * s, -0.020, -0.078); pri.rotation.x = 0.05; wing.add(pri);
+    }
+
+    for(const s of [-1, 1]){
+      const leg = new THREE.Group();
+      leg.name = s < 0 ? 'legL' : 'legR';
+      leg.position.set(0.026 * s, 0.050, 0.012);
+      body.add(leg);
+      const tar = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.0042, 0.0046, 0.050, 6)), legM);
+      tar.position.y = -0.025; leg.add(tar);
+      const foot = new THREE.Mesh(facet(new THREE.BoxGeometry(0.022, 0.0045, 0.034)), legM);
+      foot.position.set(0, -0.050, 0.008); leg.add(foot);
+      const back = new THREE.Mesh(facet(new THREE.BoxGeometry(0.006, 0.0045, 0.017)), legM);
+      back.position.set(0, -0.050, -0.012); leg.add(back);
+    }
+    return root;
+  },
+  /**
+   * 谷子（小米）单粒：略扁的椭球 + 尖端小凸起。
+   * 注：真实小米约 2mm，按真实比例在屏幕上不可见，
+   *     这里放大到约 4cm 等效尺寸以保证可玩性。
+   */
+  millet(){
+    const seedM = new THREE.MeshStandardMaterial({ name:'seed', color:0xdcb75e, roughness:0.55 });
+    const tipM  = new THREE.MeshStandardMaterial({ name:'seedTip', color:0x9c7a34, roughness:0.6 });
+    const root = new THREE.Group(); root.name = 'millet';
+    const g = new THREE.SphereGeometry(0.021, 8, 6);
+    g.scale(0.86, 0.66, 1.28);
+    const seed = new THREE.Mesh(facet(g), seedM);
+    seed.name = 'seed'; root.add(seed);
+    const tg = new THREE.ConeGeometry(0.006, 0.012, 5);
+    tg.rotateX(Math.PI / 2);
+    const tip = new THREE.Mesh(facet(tg), tipM);
+    tip.position.z = 0.026; root.add(tip);
+    return root;
+  },
+
+  /** 扫帚（住户从窗里伸出来赶鸟）：竹竿 + 穗子，穗头在原点、竿向 -Z */
+  broom(){
+    const poleM = new THREE.MeshStandardMaterial({ name:'pole',  color:0x8a6a45, roughness:0.85 });
+    const headM = new THREE.MeshStandardMaterial({ name:'broom', color:0xb08a4a, roughness:0.95 });
+    const tieM  = new THREE.MeshStandardMaterial({ name:'tie',   color:0x6d5638, roughness:0.9 });
+    const root = new THREE.Group(); root.name = 'broom';
+    const pg = new THREE.CylinderGeometry(0.017, 0.021, 1.0, 6);
+    pg.rotateX(Math.PI / 2);
+    const pole = new THREE.Mesh(facet(pg), poleM);
+    pole.position.z = -0.50; root.add(pole);
+    const head = new THREE.Mesh(facet(new THREE.BoxGeometry(0.115, 0.075, 0.26)), headM);
+    head.name = 'broomHead'; root.add(head);
+    const tie = new THREE.Mesh(facet(new THREE.BoxGeometry(0.10, 0.085, 0.05)), tieM);
+    tie.position.z = -0.10; root.add(tie);
+    for(let i = 0; i < 4; i++){                        // 几根散开的穗条，避免呆板
+      const b = new THREE.Mesh(facet(new THREE.BoxGeometry(0.016, 0.05, 0.22)), headM);
+      b.position.set(-0.045 + i * 0.030, -0.045, 0.02);
+      b.rotation.x = rand(-0.1, 0.1);
+      root.add(b);
+    }
+    return root;
+  },
+
+  /** 停在楼下的轿车（低面，用于营造"很高"的尺度参照） */
+  car(){
+    const bM = new THREE.MeshStandardMaterial({ name:'carBody', color:0xffffff, roughness:0.42, metalness:0.25 });
+    const gM = new THREE.MeshStandardMaterial({ name:'carGlass', color:0x2b3a46, roughness:0.2, metalness:0.4 });
+    const tM = new THREE.MeshStandardMaterial({ name:'tire', color:0x1a1a1c, roughness:0.9 });
+    const root = new THREE.Group(); root.name = 'car';
+    const body = new THREE.Mesh(facet(new THREE.BoxGeometry(1.75, 0.62, 4.15)), bM);
+    body.position.y = 0.62; body.name = 'carBody'; root.add(body);
+    const cab = new THREE.Mesh(facet(new THREE.BoxGeometry(1.60, 0.56, 2.05)), bM);
+    cab.position.set(0, 1.16, -0.16); root.add(cab);
+    const glass = new THREE.Mesh(facet(new THREE.BoxGeometry(1.63, 0.40, 1.90)), gM);
+    glass.position.set(0, 1.20, -0.16); root.add(glass);
+    for(const sx of [-1, 1]) for(const sz of [-1, 1]){
+      const w = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.33, 0.33, 0.22, 10)), tM);
+      w.rotation.z = Math.PI / 2;
+      w.position.set(0.84 * sx, 0.33, 1.32 * sz);
+      root.add(w);
+    }
+    return root;
+  },
+
+  /** 街边行道树 */
+  tree(){
+    const barkM = new THREE.MeshStandardMaterial({ name:'bark', color:0x6b5138, roughness:1 });
+    const leafM = new THREE.MeshStandardMaterial({ name:'leaf', color:0x51703a, roughness:0.95 });
+    const root = new THREE.Group(); root.name = 'tree';
+    const trunk = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 6)), barkM);
+    trunk.position.y = 1.3; root.add(trunk);
+    const cg = new THREE.IcosahedronGeometry(1.5, 0);
+    cg.scale(1, 0.85, 1);
+    const canopy = new THREE.Mesh(facet(cg), leafM);
+    canopy.position.y = 3.5; root.add(canopy);
+    return root;
+  }
+};
+
+/* =====================================================================
+ * §4 UI 管理器
+ * ===================================================================== */
+class UIManager {
+  constructor(){
+    const $ = id => document.getElementById(id);
+    this.hpFill = $('hpFill');   this.hpNum = $('hpNum');   this.hpRow = $('hpRow');
+    this.hpGhost = $('hpGhost');
+    this.scoreFill = $('scoreFill'); this.scoreEl = $('scoreNum');
+    this.scoreRow  = $('scoreRow');  this.goalEl  = $('goalNum');
+    this.best    = $('bestNum');     this.birdEl = $('birdNum');
+    this.height  = $('heightNum');   this.perch  = $('perchName');
+    this.toastEl = $('toast');       this.hintEl = $('hint');
+    this.fpsEl   = $('fps');         this.popLayer = $('popLayer');
+    this.startScreen = $('startScreen');
+    this.overScreen  = $('overScreen');
+    this.startBtn    = $('startBtn');
+    this.overTitle   = $('overTitle');
+    this.overSub     = $('overSub');
+    this.finalScore  = $('finalScore');
+    this.finalBest   = $('finalBest');
+    this.newRecord   = $('newRecord');
+    this.winScreen   = $('winScreen');
+    this.winBanner   = $('winBanner');
+    this.winVignette = $('winVignette');
+    this.winScore    = $('winScore');
+    this.winBest     = $('winBest');
+    this.winRecord   = $('winRecord');
+    this._toastT = 0;
+  }
+  /** 左上角血量条：与 Game.hp 严格同步（不设过渡，避免显示滞后于真实值） */
+  setHp(hp, max){
+    const m = (Number.isFinite(max) && max > 0) ? max : 150;   // 兜底：避免 NaN% 让浏览器忽略赋值、条子卡住不动
+    const v = clamp(Number.isFinite(hp) ? hp : 0, 0, m);
+    const p = v / m;
+    this._hpPct = p;
+    this.hpFill.style.width = (p * 100).toFixed(2) + '%';
+    this.hpNum.textContent = Math.ceil(v);
+    this.hpRow.classList.toggle('warn', p <= 0.5 && p > 0.22);
+    this.hpRow.classList.toggle('danger', p <= 0.22);
+  }
+  /** 扣血：残影先跳到扣血前的长度，再平滑追平当前血量 */
+  hurtFlash(fromPct){
+    const g = this.hpGhost;
+    if(!g) return;
+    g.style.transition = 'none';
+    g.style.width = (clamp(fromPct, 0, 1) * 100).toFixed(2) + '%';
+    void g.offsetWidth;                                  // 强制回流，让"回退"立刻生效
+    g.style.transition = 'width .55s ease-out';
+    g.style.width = this.hpFill.style.width;
+    this._flash('hit');
+  }
+  healFlash(){ this._flash('heal'); }
+  clearHurtGhost(){ if(this.hpGhost) this.hpGhost.style.width = '0%'; }
+  _flash(cls){
+    this.hpRow.classList.remove('hit', 'heal');
+    void this.hpRow.offsetWidth;
+    this.hpRow.classList.add(cls);
+    clearTimeout(this._flashT);
+    this._flashT = setTimeout(() => this.hpRow.classList.remove(cls), 520);
+  }
+  /** 左上角积分条：同时显示绝对值与成长进度 n / goal */
+  setScore(n, goal){
+    this.scoreEl.textContent = n;
+    this.goalEl.textContent = `${n} / ${goal}`;
+    const p = clamp(n / goal, 0, 1);
+    this.scoreFill.style.width = (p * 100).toFixed(1) + '%';
+    this.scoreRow.classList.toggle('near', p >= 0.8);   // 快攒够时高亮
+  }
+  setBest(n){ this.best.textContent = n; }
+  setBirds(n){ this.birdEl.textContent = n; }
+  setPlace(y, name){
+    this.height.textContent = (y + 9).toFixed(1);      // 街面在 y = -9
+    this.perch.textContent = name;
+  }
+  toast(msg, dur = 1.2){
+    this.toastEl.textContent = msg;
+    this.toastEl.style.opacity = '1';
+    this._toastT = dur;
+  }
+  /** 世界坐标处的飘字（吃到谷子的 +5） */
+  pop(worldPos, text){
+    _v1.copy(worldPos).project(camera);
+    const x = (_v1.x + 1) / 2 * innerWidth;
+    const y = (-_v1.y + 1) / 2 * innerHeight;
+    const d = document.createElement('div');
+    d.className = 'score-pop';
+    d.textContent = text;
+    d.style.left = x + 'px';
+    d.style.top = y + 'px';
+    this.popLayer.appendChild(d);
+    setTimeout(() => d.remove(), 900);
+  }
+  /* ---- 通关演出用的三个开关 ---- */
+  showWinBanner(){ this.winBanner.classList.remove('show'); void this.winBanner.offsetWidth;
+                   this.winBanner.style.display = 'flex'; this.winBanner.classList.add('show'); }
+  hideWinBanner(){ this.winBanner.classList.remove('show'); this.winBanner.style.display = 'none'; }
+  setWinVignette(k){
+    this.winVignette.style.opacity = k.toFixed(3);
+    this.winVignette.style.transition = k > 0 ? 'opacity .9s linear' : 'opacity .4s linear';
+  }
+  showWinScreen(score, best, isNew){
+    this.winScreen.style.display = 'flex';
+    this.winScore.textContent = score;
+    this.winBest.textContent = best;
+    this.winRecord.style.display = isNew ? 'block' : 'none';
+  }
+  toggleHint(){ this.hintEl.style.display = this.hintEl.style.display === 'none' ? '' : 'none'; }
+  update(dt){
+    if(this._toastT > 0){
+      this._toastT -= dt;
+      if(this._toastT <= 0) this.toastEl.style.opacity = '0';
+    }
+  }
+}
+
+/* =====================================================================
+ * §5 世界构建 —— 居民楼立面 + 可落脚窗台 + 街道 + 对面楼
+ *    建筑大量使用 InstancedMesh（同一几何、仅位置不同）批量渲染，
+ *    把整面楼的几百扇窗压到个位数 draw call；玩家模型才走 GLTF 管线。
+ * ===================================================================== */
+function buildWorld(scene){
+  const W = { clouds: [], windows: [], platforms: PLATFORMS };
+
+  /* ---------------- 天空 ---------------- */
+  const skyTex = makeTexture(256, (ctx, s) => {
+    const g = ctx.createLinearGradient(0, 0, 0, s);
+    g.addColorStop(0.00, '#5f9fd8');     // 天顶
+    g.addColorStop(0.45, '#9cc6e6');
+    g.addColorStop(0.78, '#d3e6f0');
+    g.addColorStop(1.00, '#eef3f2');     // 地平线薄雾
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  });
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(320, 20, 12),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
+  );
+  scene.add(sky);
+  scene.fog = new THREE.Fog(0xd6e3ec, 46, 165);
+
+  /* ---------------- 光照：一间朝南房间外的上午自然光 ---------------- */
+  scene.add(new THREE.HemisphereLight(0xbcd2e4, 0x6e6b5c, 0.50));   // 天空/地面反射
+  const sun = new THREE.DirectionalLight(0xfff3df, 1.80);
+  sun.position.set(26, 40, 30);                                     // 从右上前方照来
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
+  sun.shadow.camera.top = 20;   sun.shadow.camera.bottom = -20;
+  sun.shadow.camera.near = 1;   sun.shadow.camera.far = 140;
+  sun.shadow.bias = -0.0006;
+  sun.shadow.normalBias = 0.02;
+  scene.add(sun); scene.add(sun.target);
+  sun.target.position.set(0.5, 4.0, 0.6);                           // 阴影范围对准可玩区
+  W.sun = sun;
+
+  /* ---------------- 对面楼（一张贴图搞定，负责远景纵深） ---------------- */
+  const oppTex = makeTexture(256, (ctx, s) => {
+    ctx.fillStyle = '#b9b3a6'; ctx.fillRect(0, 0, s, s);
+    const rows = 12, cols = 8;
+    for(let r = 0; r < rows; r++){
+      for(let c = 0; c < cols; c++){
+        const x = c * (s / cols) + 4, y = r * (s / rows) + 5;
+        const w = s / cols - 8, h = s / rows - 10;
+        // 窗户颜色随机：暗房间 / 拉了窗帘 / 亮着灯
+        const p = Math.random();
+        ctx.fillStyle = p < 0.55 ? '#4a5560' : (p < 0.85 ? '#8d7f6d' : '#e2c98a');
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = 'rgba(255,255,255,.16)';
+        ctx.fillRect(x, y, w, h * 0.34);
+      }
+    }
+  }, 3, 2);
+  const opp = new THREE.Mesh(
+    new THREE.BoxGeometry(58, 34, 2),
+    new THREE.MeshStandardMaterial({ map: oppTex, roughness: 0.92 })
+  );
+  opp.position.set(-6, 6, 42);
+  scene.add(opp);
+  const opp2 = new THREE.Mesh(
+    new THREE.BoxGeometry(30, 26, 2),
+    new THREE.MeshStandardMaterial({ map: oppTex, roughness: 0.92, color: 0xcfc9bd })
+  );
+  opp2.position.set(30, 2, 36);
+  scene.add(opp2);
+
+  /* ---------------- 本楼墙体（前表面在 z = 0） ---------------- */
+  const wallTex = makeTexture(512, (ctx, s) => {
+    ctx.fillStyle = '#d5cec0'; ctx.fillRect(0, 0, s, s);
+    for(let i = 0; i < 4200; i++){                    // 涂料颗粒
+      const g = 175 + Math.random() * 65;
+      ctx.fillStyle = `rgba(${g},${g - 4},${g - 16},${0.06 + Math.random() * 0.13})`;
+      ctx.fillRect(Math.random() * s, Math.random() * s, 2, 2);
+    }
+    for(let i = 0; i < 26; i++){                      // 竖向雨水渍，老楼的关键质感
+      const x = Math.random() * s, w = 2 + Math.random() * 9, h = 60 + Math.random() * 380;
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, 'rgba(112,106,94,.26)');
+      g.addColorStop(1, 'rgba(112,106,94,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, Math.random() * s * 0.5, w, h);
+    }
+  }, 10, 7);
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(64, 40, 0.7),
+    new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95 })
+  );
+  wall.position.set(0, 8, -0.35);
+  wall.receiveShadow = true;
+  scene.add(wall);
+
+  /* ---------------- 立面窗户（全部实例化） ---------------- */
+  const winCells = [];                                 // {x, yBottom, inPlay}
+  for(const fy of FLOOR_LINES){
+    for(const cx of COL_CENTERS){
+      const inPlay = (fy >= 0 && fy <= 9 && cx > -8.1 && cx < 8.1);
+      winCells.push({ x: cx, yBottom: fy + SILL_Y_OFF, inPlay });
+    }
+  }
+  W.windows = winCells.filter(c => c.inPlay).map(c => ({ x: c.x, yBottom: c.yBottom }));
+
+  const dummy = new THREE.Object3D();
+  const frameMat = new THREE.MeshStandardMaterial({ name:'winFrame', color:0xd9d6cd, roughness:0.75 });
+  const mullMat  = new THREE.MeshStandardMaterial({ name:'winMull',  color:0xcfccc3, roughness:0.75 });
+  // 玻璃：竖向渐变贴图（上亮下暗＝天空反射），避免窗洞看着像贴纸
+  const glassTex = makeTexture(64, (ctx, s) => {
+    const g = ctx.createLinearGradient(0, 0, 0, s);
+    g.addColorStop(0.00, '#ffffff');
+    g.addColorStop(0.34, '#d6e0e6');
+    g.addColorStop(0.52, '#94a2ab');
+    g.addColorStop(1.00, '#6b777e');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  });
+  glassTex.wrapS = glassTex.wrapT = THREE.ClampToEdgeWrapping;
+  const glassDark = new THREE.MeshStandardMaterial({ name:'glassDark', color:0xffffff,
+                                                     map: glassTex, roughness:0.14, metalness:0.45 });
+  const glassLit  = new THREE.MeshStandardMaterial({ name:'glassLit', color:0xffffff, roughness:0.3,
+                                                     emissive:0x6b4a18, emissiveIntensity:0.9 });
+  const sillMat  = new THREE.MeshStandardMaterial({ name:'outerSill', color:0xc7c0b2, roughness:0.9 });
+  const grilleMat= new THREE.MeshStandardMaterial({ name:'grille', color:0x6f6a62, roughness:0.55, metalness:0.5 });
+
+  const N = winCells.length;
+  const mkInst = (geo, mat, count) => {
+    const m = new THREE.InstancedMesh(geo, mat, count);
+    m.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    return m;
+  };
+  const frameInst  = mkInst(new THREE.BoxGeometry(WIN_W + 0.22, WIN_H + 0.22, 0.14), frameMat, N);
+  const glassInst  = mkInst(new THREE.PlaneGeometry(WIN_W, WIN_H), glassDark, N);
+  const mullVInst  = mkInst(new THREE.BoxGeometry(0.05, WIN_H, 0.05), mullMat, N);
+  const mullHInst  = mkInst(new THREE.BoxGeometry(WIN_W, 0.05, 0.05), mullMat, N);
+  // 装饰挑窗台只给"没有可落脚大窗台"的窗补，否则会和游戏台面叠在一起
+  const sillCells = winCells.filter(c => !PLATFORMS.some(p =>
+    p.kind === 'sill' && Math.abs(p.y - (c.yBottom - SILL_Y_OFF)) < 0.05 &&
+    c.x > p.x0 && c.x < p.x1));
+  const osillInst  = mkInst(new THREE.BoxGeometry(WIN_W + 0.36, 0.11, 0.30), sillMat, sillCells.length);
+
+  const grilleList = [], litList = [];
+  const cGlass = new THREE.Color();
+  winCells.forEach((c, i) => {
+    const cy = c.yBottom + WIN_H / 2;
+    dummy.position.set(c.x, cy, -0.06); dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
+    frameInst.setMatrixAt(i, dummy.matrix);
+    dummy.position.set(c.x, cy, 0.02); dummy.updateMatrix();
+    glassInst.setMatrixAt(i, dummy.matrix);
+    dummy.position.set(c.x, cy, 0.05); dummy.updateMatrix();
+    mullVInst.setMatrixAt(i, dummy.matrix);
+    dummy.position.set(c.x, cy, 0.05); dummy.updateMatrix();
+    mullHInst.setMatrixAt(i, dummy.matrix);
+
+    // 玻璃随机配色：暗房间 / 暖色窗帘 / 亮灯
+    const p = Math.random();
+    if(p < 0.50)      cGlass.setHex(0x4a5a66);
+    else if(p < 0.78) cGlass.setHex(0xa8967c);
+    else if(p < 0.90) cGlass.setHex(0xc0aca6);
+    else              cGlass.setHex(0xd0bd88);
+    glassInst.setColorAt(i, cGlass);
+    if(p >= 0.94) litList.push(i);
+    if(Math.random() < 0.22) grilleList.push(i);
+  });
+  if(glassInst.instanceColor) glassInst.instanceColor.needsUpdate = true;
+
+  sillCells.forEach((c, k) => {
+    dummy.position.set(c.x, c.yBottom - 0.05, 0.11); dummy.rotation.set(0, 0, 0);
+    dummy.updateMatrix();
+    osillInst.setMatrixAt(k, dummy.matrix);
+  });
+
+  // 亮灯窗：单独一个实例网格，带自发光
+  const lit = mkInst(new THREE.PlaneGeometry(WIN_W, WIN_H), glassLit, Math.max(1, litList.length));
+  litList.forEach((idx, k) => {
+    const c = winCells[idx];
+    dummy.position.set(c.x, c.yBottom + WIN_H / 2, 0.03); dummy.updateMatrix();
+    lit.setMatrixAt(k, dummy.matrix);
+  });
+  lit.count = litList.length;
+  scene.add(lit);
+
+  // 防盗窗：竖栅 + 两根横档（横档借用窗宽盒体，竖栅逐扇摆放）
+  const grilleBars = mkInst(new THREE.BoxGeometry(0.035, WIN_H + 0.2, 0.035), grilleMat, grilleList.length * 7);
+  const grilleRail = mkInst(new THREE.BoxGeometry(WIN_W + 0.2, 0.04, 0.04), grilleMat, grilleList.length * 2);
+  let gb = 0, gr = 0;
+  for(const idx of grilleList){
+    const c = winCells[idx];
+    for(let k = 0; k < 7; k++){
+      dummy.position.set(c.x - WIN_W / 2 + 0.12 + k * (WIN_W - 0.24) / 6, c.yBottom + WIN_H / 2 + 0.1, 0.12);
+      dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
+      grilleBars.setMatrixAt(gb++, dummy.matrix);
+    }
+    for(let k = 0; k < 2; k++){
+      dummy.position.set(c.x, c.yBottom + 0.32 + k * 0.92, 0.13); dummy.updateMatrix();
+      grilleRail.setMatrixAt(gr, dummy.matrix);
+    }
+  }
+  grilleBars.count = gb; grilleRail.count = gr;
+  scene.add(frameInst, glassInst, mullVInst, mullHInst, osillInst, grilleBars, grilleRail);
+
+  /* ---------------- 外墙立管 / 燃气表箱（老小区的标志性杂物） ---------------- */
+  const pipeMat = new THREE.MeshStandardMaterial({ color:0x9d9384, roughness:0.8 });
+  for(const px of [-9.6, 8.9, 20.0]){
+    const pipe = new THREE.Mesh(
+      facet(new THREE.CylinderGeometry(0.075, 0.075, 34, 8)),
+      pipeMat
+    );
+    pipe.position.set(px, 6, 0.08);
+    scene.add(pipe);
+    // 管卡
+    for(let k = 0; k < 11; k++){
+      const ring = new THREE.Mesh(facet(new THREE.TorusGeometry(0.10, 0.022, 4, 8)), pipeMat);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(px, -9 + k * 3.1, 0.08);
+      scene.add(ring);
+    }
+  }
+
+  /* ---------------- 可落脚平台（实体网格 + 阴影） ---------------- */
+  const stoneMat = new THREE.MeshStandardMaterial({ name:'sill', color:0xbdb5a6, roughness:0.92 });
+  const dripMat  = new THREE.MeshStandardMaterial({ name:'drip', color:0x99917f, roughness:0.92 });
+  const metalMat = new THREE.MeshStandardMaterial({ name:'metal', color:0xb6bcc0, roughness:0.45, metalness:0.55 });
+  const grateMat = new THREE.MeshStandardMaterial({ name:'grate', color:0x8f9499, roughness:0.6, metalness:0.35 });
+  const terraMat = new THREE.MeshStandardMaterial({ name:'terra', color:0xa9663f, roughness:0.9 });
+  const soilMat  = new THREE.MeshStandardMaterial({ name:'soil', color:0x4b3a26, roughness:1 });
+  const leafMat  = new THREE.MeshStandardMaterial({ name:'plantLeaf', color:0x4e7a3c, roughness:0.9 });
+  const roofMat  = new THREE.MeshStandardMaterial({ name:'awning', color:0x7f9fb5, roughness:0.6, metalness:0.2 });
+  const ribMat   = new THREE.MeshStandardMaterial({ name:'awningRib', color:0x6d8ea8, roughness:0.6 });
+
+  /** 窗台板：水泥板 + 外沿滴水线 + 底部牛腿托架 */
+  function addSillSlab(p, depth){
+    const d = depth !== undefined ? depth : p.z1;
+    const w = p.x1 - p.x0, cx = (p.x0 + p.x1) / 2;
+    const slab = new THREE.Mesh(facet(new THREE.BoxGeometry(w, 0.16, d)), stoneMat);
+    slab.position.set(cx, p.y - 0.08, d / 2);
+    slab.castShadow = true; slab.receiveShadow = true;
+    scene.add(slab);
+    const drip = new THREE.Mesh(facet(new THREE.BoxGeometry(w, 0.055, 0.07)), dripMat);
+    drip.position.set(cx, p.y - 0.135, d - 0.035);
+    drip.castShadow = true;
+    scene.add(drip);
+    const nb = Math.max(2, Math.round(w / 1.9));       // 托架数量随宽度
+    for(let i = 0; i < nb; i++){
+      const bx = p.x0 + (i + 0.5) * (w / nb);
+      const br = new THREE.Mesh(facet(new THREE.BoxGeometry(0.11, 0.20, Math.min(d, 0.34))), stoneMat);
+      br.position.set(bx, p.y - 0.26, Math.min(d, 0.34) / 2);
+      br.castShadow = true;
+      scene.add(br);
+    }
+  }
+
+  /** 空调外机：机箱 + 风扇格栅 + 挂墙支架 */
+  function addACUnit(p){
+    const w = p.x1 - p.x0, h = 0.62, cx = (p.x0 + p.x1) / 2, d = p.z1;
+    const box = new THREE.Mesh(facet(new THREE.BoxGeometry(w, h, d)), metalMat);
+    box.position.set(cx, p.y - h / 2, d / 2);
+    box.castShadow = true; box.receiveShadow = true;
+    scene.add(box);
+    const grill = new THREE.Mesh(facet(new THREE.CylinderGeometry(d * 0.34, d * 0.34, 0.04, 12)), grateMat);
+    grill.rotation.x = Math.PI / 2;
+    grill.position.set(cx, p.y - h * 0.55, d + 0.01);
+    scene.add(grill);
+    const hub = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 8)), grateMat);
+    hub.rotation.x = Math.PI / 2;
+    hub.position.set(cx, p.y - h * 0.55, d + 0.03);
+    scene.add(hub);
+    for(const s of [-1, 1]){
+      const br = new THREE.Mesh(facet(new THREE.BoxGeometry(0.06, 0.09, d * 0.9)), metalMat);
+      br.position.set(cx + s * (w / 2 - 0.12), p.y - h - 0.05, d * 0.45);
+      scene.add(br);
+    }
+  }
+
+  /** 花架：木托盘 + 两个陶盆 */
+  function addFlowerRack(p){
+    const w = p.x1 - p.x0, cx = (p.x0 + p.x1) / 2, d = p.z1;
+    const tray = new THREE.Mesh(facet(new THREE.BoxGeometry(w, 0.09, d)), terraMat);
+    tray.position.set(cx, p.y - 0.045, d / 2);
+    tray.castShadow = true; tray.receiveShadow = true;
+    scene.add(tray);
+    for(const s of [-1, 1]){
+      const pot = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.17, 0.13, 0.26, 10)), terraMat);
+      pot.position.set(cx + s * (w / 2 - 0.34), p.y + 0.13, d / 2);
+      pot.castShadow = true;
+      scene.add(pot);
+      const soil = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.15, 0.15, 0.03, 10)), soilMat);
+      soil.position.set(cx + s * (w / 2 - 0.34), p.y + 0.25, d / 2);
+      scene.add(soil);
+      const bushG = new THREE.IcosahedronGeometry(0.19, 0);
+      bushG.scale(1, 0.8, 1);
+      const bush = new THREE.Mesh(facet(bushG), leafMat);
+      bush.position.set(cx + s * (w / 2 - 0.34), p.y + 0.36, d / 2);
+      bush.castShadow = true;
+      scene.add(bush);
+    }
+  }
+
+  /** 雨棚：彩钢瓦波纹板 + 斜撑 */
+  function addAwning(p){
+    const w = p.x1 - p.x0, cx = (p.x0 + p.x1) / 2, d = p.z1;
+    const panel = new THREE.Mesh(facet(new THREE.BoxGeometry(w, 0.05, d)), roofMat);
+    panel.position.set(cx, p.y - 0.025, d / 2);
+    panel.castShadow = true; panel.receiveShadow = true;
+    scene.add(panel);
+    const ribs = Math.max(3, Math.round(w / 0.42));
+    for(let i = 0; i < ribs; i++){
+      const rib = new THREE.Mesh(facet(new THREE.BoxGeometry(0.07, 0.07, d)), ribMat);
+      rib.position.set(p.x0 + (i + 0.5) * (w / ribs), p.y + 0.015, d / 2);
+      rib.castShadow = true;
+      scene.add(rib);
+    }
+    const lip = new THREE.Mesh(facet(new THREE.BoxGeometry(w, 0.10, 0.05)), ribMat);
+    lip.position.set(cx, p.y - 0.07, d - 0.02);
+    scene.add(lip);
+    for(const s of [-1, 1]){
+      const prop = new THREE.Mesh(facet(new THREE.BoxGeometry(0.05, 0.62, 0.05)), metalMat);
+      prop.position.set(cx + s * (w / 2 - 0.25), p.y - 0.36, d - 0.22);
+      prop.rotation.x = 0.42;
+      scene.add(prop);
+    }
+  }
+
+  // 逐个平台生成实体构件。可落脚台面都贴在既有窗户网格上：
+  // 窗台/腰线正好在楼层线上（窗在它上面）、空调与花架吊在两层之间的墙面素带上，
+  // 所以不需要再额外造窗户，立面也不会出现两扇窗互相穿插。
+  for(const p of PLATFORMS){
+    if(p.kind === 'ac')          addACUnit(p);
+    else if(p.kind === 'flower') addFlowerRack(p);
+    else if(p.kind === 'awning') addAwning(p);
+    else                         addSillSlab(p);
+  }
+
+  /* ---------------- 晾衣杆 + 晾晒的衣服（挂在二层装饰窗上） ---------------- */
+  const clothMats = [
+    new THREE.MeshStandardMaterial({ color:0xdfe6ea, roughness:0.9, side:THREE.DoubleSide }),
+    new THREE.MeshStandardMaterial({ color:0xc2d3de, roughness:0.9, side:THREE.DoubleSide }),
+    new THREE.MeshStandardMaterial({ color:0xd9c3b8, roughness:0.9, side:THREE.DoubleSide })
+  ];
+  for(const rx of [-11.5, 12.2]){
+    const rod = new THREE.Mesh(facet(new THREE.CylinderGeometry(0.028, 0.028, 3.4, 6)), metalMat);
+    rod.rotation.z = Math.PI / 2;
+    rod.position.set(rx, 4.55, 0.42);
+    scene.add(rod);
+    for(let i = 0; i < 3; i++){
+      const cw = 0.44 + Math.random() * 0.26, ch = 0.62 + Math.random() * 0.5;
+      const cloth = new THREE.Mesh(new THREE.PlaneGeometry(cw, ch), clothMats[i % 3]);
+      cloth.position.set(rx - 1.3 + i * 0.95, 4.55 - ch / 2 - 0.02, 0.42);
+      cloth.rotation.y = 0.02 * (i - 1);
+      cloth.castShadow = true;
+      scene.add(cloth);
+    }
+  }
+
+  /* ---------------- 通关动画的金色光晕（平时隐藏，通关时跟着鸟升空） ---------------- */
+  const winGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: softCircleTexture(), color: 0xffdb8f, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false
+  }));
+  winGlow.visible = false;
+  scene.add(winGlow);
+  W.winGlow = winGlow;
+
+  /* ---------------- 云端 ---------------- */
+  const cloudTex = makeTexture(128, (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    for(let i = 0; i < 16; i++){
+      const x = s * (0.2 + Math.random() * 0.6), y = s * (0.35 + Math.random() * 0.3);
+      const r = s * (0.12 + Math.random() * 0.18);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(255,255,255,.85)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+  for(let i = 0; i < 9; i++){
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: cloudTex, transparent: true, depthWrite: false, opacity: 0.85, fog: false
+    }));
+    const sc = rand(14, 30);
+    sp.scale.set(sc, sc * 0.52, 1);
+    sp.position.set(rand(-140, 140), rand(30, 62), rand(-40, 90));
+    scene.add(sp);
+    W.clouds.push(sp);
+  }
+
+  /* ---------------- 街道（营造高度感，只在坠落/远眺时看清） ---------------- */
+  const roadTex = makeTexture(256, (ctx, s) => {
+    ctx.fillStyle = '#4c4d50'; ctx.fillRect(0, 0, s, s);
+    for(let i = 0; i < 3000; i++){
+      const g = 60 + Math.random() * 60;
+      ctx.fillStyle = `rgba(${g},${g},${g + 4},.35)`;
+      ctx.fillRect(Math.random() * s, Math.random() * s, 2, 2);
+    }
+    ctx.fillStyle = 'rgba(232,228,206,.85)';           // 车道虚线
+    for(let i = 0; i < 6; i++) ctx.fillRect(s * 0.47, i * (s / 6) + 6, s * 0.06, s / 12);
+  }, 4, 6);
+  const road = new THREE.Mesh(
+    new THREE.BoxGeometry(80, 0.3, 34),
+    new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.95 })
+  );
+  road.position.set(0, -9.15, 20);
+  road.receiveShadow = true;
+  scene.add(road);
+  const walkway = new THREE.Mesh(
+    new THREE.BoxGeometry(80, 0.34, 4.4),
+    new THREE.MeshStandardMaterial({ color: 0xb9b3a4, roughness: 0.95 })
+  );
+  walkway.position.set(0, -9.12, 1.6);
+  walkway.receiveShadow = true;
+  scene.add(walkway);
+  const curb = new THREE.Mesh(
+    new THREE.BoxGeometry(80, 0.2, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0xd0cabb, roughness: 0.95 })
+  );
+  curb.position.set(0, -9.05, 3.85);
+  scene.add(curb);
+
+  // 行道树
+  for(const tx of [-24, -13, -4, 6, 17, 26]){
+    const t = MODELS.tree.clone(true);
+    t.position.set(tx, -9, 6.2);
+    t.rotation.y = rand(0, Math.PI * 2);
+    t.scale.setScalar(rand(0.9, 1.25));
+    scene.add(t);
+  }
+  // 停在路边的车
+  const carColors = [0xd8d8d4, 0x2f3a44, 0x8f2f2f, 0x33465c, 0xc9c4b6];
+  for(let i = 0; i < 5; i++){
+    const c = MODELS.car.clone(true);
+    c.position.set(-22 + i * 10.5 + rand(-1, 1), -9, 11.5 + rand(-0.4, 0.4));
+    c.rotation.y = rand(-0.05, 0.05);
+    c.traverse(o => {
+      if(o.isMesh && o.material && o.material.name === 'carBody'){
+        o.material = o.material.clone();
+        o.material.color.setHex(carColors[i % carColors.length]);
+      }
+    });
+    scene.add(c);
+  }
+  // 电线（几根下垂的黑色细管，很"街区"）
+  for(let i = 0; i < 3; i++){
+    const pts = [];
+    for(let k = 0; k <= 10; k++){
+      const t = k / 10;
+      pts.push(new THREE.Vector3(-30 + t * 60, 7.4 + i * 0.5 - Math.sin(t * Math.PI) * 1.05, 8.5 + i * 0.6));
+    }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const wire = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, 22, 0.028, 4, false),
+      new THREE.MeshStandardMaterial({ color: 0x24242a, roughness: 0.85 })
+    );
+    scene.add(wire);
+  }
+
+  return W;
+}
+
+/* =====================================================================
+ * §6 谷子系统 —— 平台台面上散落谷子，被吃掉后按配额慢慢补生
+ *    落点偏好"成簇"：新谷子有较大概率出现在同平台已有谷子旁边，
+ *    这样看起来像住户倒谷子时洒出来的一摊，而不是均匀撒盐。
+ * ===================================================================== */
+class MilletSystem {
+  constructor(scene, proto){
+    this.scene = scene; this.proto = proto;
+    this.items = [];                                    // 场上活着的谷子
+    this.pool  = [];                                    // 吃掉后回收的模型（复用，避免反复克隆）
+    this.timer = 0;
+    this.byPlatform = new Map();                        // 平台 -> 活跃谷子数组
+    PLATFORMS.forEach(p => this.byPlatform.set(p, []));
+    for(const p of PLATFORMS){                          // 开局按配额铺满
+      for(let i = 0; i < p.millet; i++) this.spawn(p);
+    }
+  }
+  /** 重开一局：回收全部谷子再按配额重新铺满 */
+  reset(){
+    for(const it of this.items.slice()) this._remove(it);
+    for(const p of PLATFORMS){
+      for(let i = 0; i < p.millet; i++) this.spawn(p);
+    }
+  }
+  /** 在指定平台上找一个落点（成簇或散落） */
+  _spot(p, out){
+    const list = this.byPlatform.get(p);
+    const margin = 0.20;
+    if(list.length > 0 && Math.random() < 0.55){
+      const near = list[Math.floor(Math.random() * list.length)].group.position;
+      out.set(
+        clamp(near.x + rand(-0.16, 0.16), p.x0 + margin, p.x1 - margin),
+        p.y,
+        clamp(near.z + rand(-0.14, 0.14), p.z0 + margin, p.z1 - margin)
+      );
+      return out;
+    }
+    out.set(
+      rand(p.x0 + margin, p.x1 - margin),
+      p.y,
+      rand(p.z0 + margin, p.z1 - margin)
+    );
+    return out;
+  }
+  spawn(p){
+    let g = this.pool.pop();                            // 优先复用回收的模型
+    if(g) g.visible = true;
+    else { g = this.proto.clone(true); this.scene.add(g); }
+    this._spot(p, g.position);
+    g.position.y = p.y + 0.012;                        // 略微嵌入台面，避免悬空
+    g.rotation.set(0, rand(0, Math.PI * 2), rand(-0.25, 0.25));
+    const baseScale = rand(0.85, 1.18);
+    g.scale.setScalar(baseScale * 0.02);               // 先缩到极小，update 里"冒"出来
+    const item = { group: g, platform: p, alive: true, popT: 0, baseScale };
+    this.items.push(item);
+    this.byPlatform.get(p).push(item);
+    return item;
+  }
+  _remove(item){
+    item.alive = false;
+    item.group.visible = false;
+    const arr = this.byPlatform.get(item.platform);
+    const i = arr.indexOf(item);
+    if(i >= 0) arr.splice(i, 1);
+    const j = this.items.indexOf(item);
+    if(j >= 0) this.items.splice(j, 1);
+    this.pool.push(item.group);
+  }
+  /** 在随机窗台上刷新谷子：越缺谷子的台面越容易被抽中，但落点与平台都是随机的 */
+  update(dt){
+    /* 新生谷子从小长到正常大小 */
+    for(const it of this.items){
+      if(it.popT >= 1) continue;
+      it.popT = Math.min(1, it.popT + dt / DBG.milletPopSec);
+      const k = 1 - Math.pow(1 - it.popT, 3);           // easeOut
+      it.group.scale.setScalar(it.baseScale * k);
+    }
+
+    this.timer -= dt;
+    if(this.timer > 0) return;
+    this.timer = DBG.milletRespawn;
+    const short = PLATFORMS.filter(p => this.byPlatform.get(p).length < p.millet);
+    if(!short.length) return;
+    // 加权随机挑一个还缺货的窗台（缺得越多权重越大，但每个都有机会）
+    const w = short.map(p => 1 + (1 - this.byPlatform.get(p).length / p.millet) * 2.5);
+    let r = Math.random() * w.reduce((a, b) => a + b, 0);
+    let pick = short[short.length - 1];
+    for(let i = 0; i < short.length; i++){ r -= w[i]; if(r <= 0){ pick = short[i]; break; } }
+    // 偶尔一次冒出一小撮，像楼上又倒了一把谷子下来
+    const n = Math.random() < DBG.milletBurstChance ? 2 + Math.floor(Math.random() * 2) : 1;
+    for(let i = 0; i < n && this.byPlatform.get(pick).length < pick.millet; i++){
+      const it = this.spawn(pick);
+      if(i > 0) this._spot(pick, it.group.position);
+      it.group.position.y = pick.y + 0.012;
+      FX.burst(it.group.position, 2, { color:0xdcc47e, speed:0.28, life:0.5, size:0.03, up:0.55 });
+    }
+  }
+  /**
+   * 啄食判定：返回距离鸟喙最近且在 eatRange 内的谷子（并移除它）。
+   * 只判定当前所站平台上的谷子，避免隔空吃到下一层。
+   */
+  tryEat(bird){
+    const p = bird.platform;
+    if(!p) return null;
+    const arr = this.byPlatform.get(p);
+    if(!arr || !arr.length) return null;
+    const bx = bird.group.position.x, bz = bird.group.position.z;
+    let best = null, bestD = DBG.eatRange;
+    for(const it of arr){
+      const d = Math.hypot(it.group.position.x - bx, it.group.position.z - bz);
+      if(d < bestD){ bestD = d; best = it; }
+    }
+    if(!best) return null;
+    const pos = best.group.position.clone();
+    this._remove(best);
+    return pos;
+  }
+  /**
+   * AI 鸟啄食：吃掉指定平台上离 (x,z) 最近的一粒谷子。
+   * 返回被吃掉的坐标；没吃到返回 null。
+   * 谷子是"同一份"，被鸟吃掉玩家就没了 —— 这就是争抢的来源。
+   */
+  takeNearest(x, z, platform, radius){
+    const arr = this.byPlatform.get(platform);
+    if(!arr || !arr.length) return null;
+    let best = null, bd = radius;
+    for(const it of arr){
+      const d = Math.hypot(it.group.position.x - x, it.group.position.z - z);
+      if(d < bd){ bd = d; best = it; }
+    }
+    if(!best) return null;
+    const pos = best.group.position.clone();
+    this._remove(best);
+    return pos;
+  }
+}
+
+/* =====================================================================
+ * §7 扫帚威胁系统 —— 住户嫌吵，从窗里伸扫帚横扫台面
+ *    三阶段：预警（扫帚探出，可以听声/看影）→ 横扫（有伤害）→ 收回
+ * ===================================================================== */
+class SweepSystem {
+  constructor(scene, proto, windows){
+    this.scene = scene; this.windows = windows;
+    this.pool = []; this.items = [];
+    this.timer = DBG.sweepFirstDelay;
+    this.hurtCd = 0;
+    for(let i = 0; i < 2; i++){
+      const b = proto.clone(true);
+      b.visible = false;
+      b.traverse(o => { if(o.isMesh) o.castShadow = true; });
+      scene.add(b);
+      this.pool.push(b);
+    }
+  }
+  /** 重开一局：收起所有还在挥的扫帚，并把计时器推后 */
+  reset(){
+    for(const it of this.items){ it.mesh.visible = false; }
+    this.items.length = 0;
+    this.timer = DBG.sweepFirstDelay;
+    this.hurtCd = 0;
+  }
+  _pickPlatform(){
+    // 55% 概率直接冲着玩家所在平台来（有威胁感），否则随机挑一层
+    if(Math.random() < 0.55 && Bird.platform) return Bird.platform;
+    return PLATFORMS[Math.floor(Math.random() * PLATFORMS.length)];
+  }
+  _nearestWindow(p){
+    const px = (p.x0 + p.x1) / 2;
+    let best = this.windows[0], bd = Infinity;
+    for(const w of this.windows){
+      const d = Math.abs(w.x - px) + Math.abs(w.yBottom - p.y) * 1.2;
+      if(d < bd){ bd = d; best = w; }
+    }
+    return best;
+  }
+  _launch(){
+    const mesh = this.pool.find(m => !m.visible);
+    if(!mesh) return;
+    const p = this._pickPlatform();
+    const win = this._nearestWindow(p);
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const pad = 0.35;
+    const xa = p.x0 - pad, xb = p.x1 + pad;
+    // 扫帚横杆从窗口斜伸出来，穗头在 (x, p.y+0.10, 0.58)；
+    // 竿子仰角 0.72 弧度，让它看上去是从上方窗户里伸下来的，而不是凭空长在台面上
+    mesh.position.set(dir > 0 ? xa : xb, p.y + 0.10, 0.58);
+    mesh.rotation.set(0.72, 0, 0);
+    mesh.visible = true;
+    this.items.push({
+      mesh, p, dir, win,
+      t: 0, phase: 'warn', hit: false, xa, xb,
+      swayPhase: rand(0, 6)
+    });
+    Audio.alert();
+    UI.toast('小心！窗户里伸出了扫帚', 1.0);
+  }
+  update(dt){
+    if(!DBG.sweepEnabled) return;
+    if(this.hurtCd > 0) this.hurtCd -= dt;
+
+    /* 只在正常游戏时开新的横扫；已出手的扫帚照常收完，免得画面里卡着半截 */
+    const live = Game.state === 'playing';
+    if(live){
+      this.timer -= dt;
+      if(this.timer <= 0){
+        this._launch();
+        this.timer = rand(DBG.sweepIntervalMin, DBG.sweepIntervalMax);
+      }
+    }
+
+    for(let i = this.items.length - 1; i >= 0; i--){
+      const it = this.items[i];
+      it.t += dt;
+      const m = it.mesh;
+      if(it.phase === 'warn'){
+        // 探出：从墙面里慢慢伸出来
+        const k = clamp(it.t / DBG.sweepWarnSec, 0, 1);
+        const x0 = it.dir > 0 ? it.xa : it.xb;
+        m.position.x = x0;
+        m.position.z = lerp(0.0, 0.58, easeOut(k));
+        m.position.y = it.p.y + 0.10 + Math.sin(k * 14) * 0.02;
+        if(it.t >= DBG.sweepWarnSec){ it.phase = 'swing'; it.t = 0; }
+      }else if(it.phase === 'swing'){
+        const k = clamp(it.t / DBG.sweepSwingSec, 0, 1);
+        const x = lerp(it.xa, it.xb, it.dir > 0 ? k : 1 - k);
+        m.position.x = x;
+        m.position.z = 0.58;
+        m.position.y = it.p.y + 0.10 + Math.sin(k * Math.PI) * 0.05;
+        m.rotation.z = Math.sin(it.t * 22 + it.swayPhase) * 0.07;
+        // 命中判定：同一高度层 + 水平距离足够近
+        if(!it.hit && live && this.hurtCd <= 0 && Bird.platform === it.p &&
+           Math.abs(Bird.group.position.y - it.p.y) < 0.6 &&
+           Math.abs(Bird.group.position.x - x) < DBG.sweepHitRadius &&
+           Bird.group.position.z < it.p.z1 + 0.3){
+          it.hit = true;
+          this.hurtCd = DBG.sweepDamageCooldown;
+          Bird.hurt(it.dir, it.p);
+        }
+        if(it.t >= DBG.sweepSwingSec){ it.phase = 'back'; it.t = 0; }
+      }else{
+        const k = clamp(it.t / DBG.sweepBackSec, 0, 1);
+        m.position.z = lerp(0.58, 0.0, k);
+        m.position.y = it.p.y + 0.10;
+        m.rotation.z *= 0.9;
+        if(it.t >= DBG.sweepBackSec){
+          m.visible = false;
+          this.items.splice(i, 1);
+        }
+      }
+    }
+  }
+}
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+/* =====================================================================
+ * §8 珠颈斑鸠玩家 —— 移动 / 扑跳 / 姿态动画
+ *    控制器思路：水平速度用"伺服"逼近目标速度（地面快、空中慢），
+ *    竖直只有重力；落点判定采用单向平台（仅下落时穿过顶面才算落地），
+ *    这样从下方跳上来不会被卡住。
+ * ===================================================================== */
+class DovePlayer {
+  constructor(scene, model){
+    this.group = new THREE.Group();
+    scene.add(this.group);
+    model.traverse(o => { if(o.isMesh){ o.castShadow = true; o.receiveShadow = false; } });
+    this.group.add(model);
+    this.model = model;
+
+    this.body  = findDeep(model, 'body');
+    this.headG = findDeep(model, 'headG');
+    this.tail  = findDeep(model, 'tail');
+    this.wingL = findDeep(model, 'wingL');
+    this.wingR = findDeep(model, 'wingR');
+    this.legL  = findDeep(model, 'legL');
+    this.legR  = findDeep(model, 'legR');
+    this.beak  = findDeep(model, 'beak');
+    this.headHome = this.headG.position.clone();        // 记录头部静止位，用于点头动画
+
+    this.vel = new THREE.Vector3();
+    this.grounded = true; this.platform = PLATFORMS[0];
+    this.heading = Math.PI;                             // 初始面朝墙（-Z），相机在身后街上
+    this.walkPhase = 0; this.bobPhase = 0; this.flapPhase = 0;
+    this.wingMix = 0; this.legTuck = 0;
+    this.peckT = -1; this.eatCd = 0; this.squash = 0;
+    this.moving = false; this.airTime = 0;
+    this.inputX = 0; this.inputZ = 0;                   // 本帧输入轴（相机 rig 会读）
+    this.idleT = 0; this.cooT = rand(5, 9);
+    this.breathT = rand(0, 6);
+    this.preening = -1; this.preens = rand(8, 20); this.preanSide = 1;
+    this.reset();
+  }
+  reset(){
+    const p = PLATFORMS[0];
+    this.group.position.set(-3.60, p.y, 0.95);
+    this.heading = Math.PI;
+    this.vel.set(0, 0, 0);
+    this.grounded = true; this.platform = p;
+    this.peckT = -1; this.eatCd = 0; this.squash = 0; this.airTime = 0;
+    this.body.rotation.set(0, 0, 0);
+    this.body.scale.set(1, 1, 1);
+    this.body.position.y = 0;
+  }
+  get speedXZ(){ return Math.hypot(this.vel.x, this.vel.z); }
+
+  /* --- 输入方向（相对相机 yaw），返回归一化世界方向 --- */
+  _inputDir(out){
+    const ix = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+    const iz = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+    this.inputX = ix; this.inputZ = iz;                  // 供相机判断"是否在往前跑"
+    if(ix === 0 && iz === 0) return null;
+    const cy = Rig.totalYaw;
+    const fx = Math.sin(cy), fz = Math.cos(cy);
+    let wx = fx * iz + (-fz) * ix;
+    let wz = fz * iz + fx * ix;
+    const l = Math.hypot(wx, wz);
+    if(l < 1e-5) return null;
+    return out.set(wx / l, 0, wz / l);
+  }
+  /** 短距离扑跳 */
+  hop(){
+    if(Game.state !== 'playing' || !this.grounded) return;
+    this.grounded = false; this.platform = null;
+    this.vel.y = DBG.hopUp;
+    const d = this._inputDir(_v3);
+    if(d){ this.vel.x += d.x * DBG.hopKick; this.vel.z += d.z * DBG.hopKick; }
+    this.flapPhase = 0; this.airTime = 0;
+    this.squash = -0.35;
+    Audio.hop(); Audio.flap(0.6);
+    FX.burst(this.group.position, 5, { color: 0xd9d2c4, speed: 0.5, life: 0.4, size: 0.05, up: 0.4 });
+  }
+  /** 啄一口（0.22 秒的低头动作，与啄食共用） */
+  peck(){ this.peckT = 0; }
+  /** 被别的鸟啄了一口：掉一点血 + 轻微后退（血量 UI 由 Game.damage 同步） */
+  peckedBy(src){
+    if(Game.state !== 'playing') return;
+    Game.damage(Math.max(1, Math.round(src.cfg.peckDamage * DBG.aiDamageMul)));
+    if(Game.state !== 'playing') return;                // 可能刚好被啄到血尽
+    const dx = this.group.position.x - src.group.position.x;
+    const dz = this.group.position.z - src.group.position.z;
+    const l = Math.hypot(dx, dz) || 1;
+    this.vel.x += dx / l * 1.5;
+    this.vel.z += dz / l * 1.5;
+    this.squash = 0.22;
+    Audio.peck();
+    FX.burst(this.group.position, 4, { color: 0xfff0d8, speed: 0.8, life: 0.3, size: 0.03, up: 0.6 });
+    if(!this._peckTipT || performance.now() - this._peckTipT > 4000){
+      this._peckTipT = performance.now();
+      UI.toast(`被${src.cfg.label}啄了 —— 左键点它可以赶走`, 1.4);
+    }
+  }
+  /** 被扫帚击中：扣血量 + 击退（可能被打下窗台） */
+  hurt(dirX, p){
+    Game.damage(DBG.sweepDamage);
+    this.grounded = false; this.platform = null;
+    this.vel.set(dirX * 3.3, 2.6, 0.6);
+    this.hurtT = 0.35;
+    Audio.hurt();
+    UI.toast('被扫帚打到了！', 1.0);
+    FX.burst(this.group.position, 12, { color: 0xd8c48a, speed: 1.6, life: 0.6, size: 0.07, up: 1.0 });
+  }
+
+  /**
+   * 通关动画：展翅起飞，先猛地拔高、再转为平缓爬升，同时朝街心飘去，
+   * 最后在天上只剩一个小点。全程不读输入、不受重力与平台约束。
+   */
+  _winFly(dt){
+    const t = Game.winT;
+    const p = this.group.position;
+    const done = t > DBG.winAnimSec;                          // 演出结束后就在高空慢慢飘
+    const climb = done ? 0.20 : DBG.winClimb * Math.exp(-t * 0.42) + 1.7;
+    const drift = done ? 0.15 : 1.3 + t * 0.55;
+    this.grounded = false; this.platform = null;
+    this.vel.set(0, climb, drift);                            // 供 _anim 计算抬头姿态
+    p.y += climb * dt;
+    p.z += drift * dt;                                        // 朝街道上空飘去
+    p.x += Math.sin(t * 0.8) * 1.5 * dt;                      // 轻微左右摆，像在盘旋
+    this.heading = dampAngle(this.heading, Math.PI, 1.2, dt);
+    this.moving = true;
+    if(!done && Math.random() < 0.5){                         // 一路洒下金色光点
+      FX.burst(p, 2, { color: 0xffe07a, speed: 0.5, life: 0.9, size: 0.05, up: -0.2 });
+    }
+  }
+  /** 当前 XZ 位置上方可以站立（且站得住）的平台 */
+  _platformUnder(x, z, refY){
+    let best = null;
+    for(const p of PLATFORMS){
+      if(x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
+      if(p.y <= refY + 0.06 && (!best || p.y > best.y)) best = p;
+    }
+    return best;
+  }
+  /** 单向平台：只有从上方下落、本帧穿过顶面时才判定落地 */
+  _supportCrossed(x, z, y, prevY){
+    let best = null;
+    for(const p of PLATFORMS){
+      if(x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
+      if(p.y <= prevY + 1e-4 && p.y >= y - 1e-4){
+        if(!best || p.y > best.y) best = p;
+      }
+    }
+    return best;
+  }
+
+  update(dt){
+    /* 通关动画期间脱离物理：不读输入、不判定平台，只沿脚本曲线往上飞 */
+    if(Game.state === 'win'){ this._winFly(dt); this._anim(dt); return; }
+    const playing = Game.state === 'playing';
+    const pos = this.group.position;
+    const prevY = pos.y;
+    if(this.eatCd > 0) this.eatCd -= dt;
+    if(this.hurtT > 0) this.hurtT -= dt;
+
+    /* ---- 1) 目标水平速度：地面灵巧、空中惯性大 ---- */
+    const d = playing ? this._inputDir(_v3) : null;
+    const rate = this.grounded ? DBG.walkAccel : DBG.airAccel;
+    const maxS = this.grounded ? DBG.walkSpeed : DBG.airSpeed;
+    const tx = d ? d.x * maxS : 0;
+    const tz = d ? d.z * maxS : 0;
+    const k = damp(dt, rate);
+    this.vel.x += (tx - this.vel.x) * k;
+    this.vel.z += (tz - this.vel.z) * k;
+    this.moving = this.speedXZ > 0.25;
+
+    /* ---- 2) 朝向：朝着移动方向转身 ---- */
+    if(d){
+      const want = Math.atan2(d.x, d.z);
+      this.heading = dampAngle(this.heading, want,
+        this.grounded ? DBG.turnRateGround : DBG.turnRateAir, dt);
+    }
+
+    /* ---- 3) 竖直：重力 ---- */
+    if(!this.grounded){
+      this.vel.y -= DBG.gravity * dt;
+      this.airTime += dt;
+    }
+
+    /* ---- 4) 积分 ---- */
+    pos.x += this.vel.x * dt;
+    pos.z += this.vel.z * dt;
+    if(!this.grounded) pos.y += this.vel.y * dt;
+
+    /* ---- 5) 落地 / 走空 ---- */
+    if(this.grounded){
+      const p = this._platformUnder(pos.x, pos.z, prevY);
+      if(p){ pos.y = p.y; this.platform = p; }
+      else {                                            // 走出了台面边缘 -> 开始下坠
+        this.grounded = false; this.platform = null;
+        this.vel.y = 0; this.airTime = 0;
+      }
+    }else{
+      const p = this._supportCrossed(pos.x, pos.z, pos.y, prevY);
+      if(p && this.vel.y <= 0){
+        pos.y = p.y; this.vel.y = 0;
+        this.grounded = true; this.platform = p;
+        this.vel.x *= DBG.landFriction; this.vel.z *= DBG.landFriction;
+        this.squash = 0.28;
+        Audio.flap(0.5);
+        FX.burst(pos, 4, { color: 0xd9d2c4, speed: 0.45, life: 0.35, size: 0.05, up: 0.3 });
+      }
+    }
+
+    /* ---- 6) 边界：不能穿进墙里；越出楼体左右端也会掉下去 ---- */
+    if(pos.z < 0.12){ pos.z = 0.12; if(this.vel.z < 0) this.vel.z = 0; }
+    pos.x = clamp(pos.x, -31, 31);
+    pos.z = clamp(pos.z, -30, 40);
+
+    /* ---- 7) 坠楼判定 ---- */
+    if(!this.grounded && pos.y < DBG.fallDeathY && Game.state === 'playing'){
+      Game.over('fall');
+    }
+
+    /* ---- 8) 自动啄食 ---- */
+    if(playing && this.grounded && this.eatCd <= 0 && this.peckT < 0){
+      const g = Millet.tryEat(this);
+      if(g){
+        this.peckT = 0; this.eatCd = DBG.eatCooldown;
+        Game.eat(g);
+      }
+    }
+
+    this._anim(dt);
+  }
+
+  _anim(dt){
+    this.group.rotation.y = this.heading;
+    const airborne = !this.grounded;
+
+    /* ---- 腿：地面交替迈步，空中收起 ---- */
+    this.walkPhase += dt * (this.moving && this.grounded ? 9.5 : 0);
+    const swing = Math.sin(this.walkPhase) * (this.moving && this.grounded ? 0.72 : 0);
+    this.legTuck += ((airborne ? 1 : 0) - this.legTuck) * damp(dt, 10);
+    for(const [leg, s] of [[this.legL, 1], [this.legR, -1]]){
+      const target = lerp(swing * s, -1.15, this.legTuck);
+      leg.rotation.x += (target - leg.rotation.x) * damp(dt, 14);
+    }
+
+    /* ---- 翼：收拢 <-> 振翅 ---- */
+    this.wingMix += ((airborne ? 1 : 0) - this.wingMix) * damp(dt, 8);
+    let flapA;
+    if(airborne){
+      // 扑跳 / 坠落时快速振翅；坠落越快扇得越急
+      const rate = Math.min(20, 13 + Math.abs(this.vel.y) * 0.9);
+      this.flapPhase += dt * rate;
+      flapA = Math.sin(this.flapPhase) * 0.92;
+    }else{
+      this.flapPhase += dt * 1.2;
+      flapA = -0.12 + Math.sin(this.flapPhase) * 0.02;   // 静止时微微收翼
+    }
+    const za = lerp(-0.12, flapA, this.wingMix);
+    const sweep = lerp(0.06, 0.62, this.wingMix);
+    this.wingR.rotation.z = za;   this.wingR.rotation.y = sweep;
+    this.wingL.rotation.z = -za;  this.wingL.rotation.y = -sweep;
+
+    /* ---- 头：行走点头（鸽类行走时头明显前后点动）+ 啄食 + 闲时张望 ---- */
+    let headZ = 0, headYaw = 0, headPitch = 0;
+    if(this.grounded && this.moving){
+      this.bobPhase += dt * 9.5;
+      headZ = Math.sin(this.bobPhase) * 0.012;
+      headPitch = Math.abs(Math.sin(this.bobPhase)) * 0.06;
+    }else{
+      this.bobPhase *= 0.9;
+    }
+    if(this.peckT >= 0){
+      this.peckT += dt;
+      // 一次啄食 0.22 秒：快速低头再抬起
+      const k = this.peckT / 0.22;
+      if(k < 1) headPitch += Math.sin(k * Math.PI) * 0.95;
+      else this.peckT = -1;
+    }else if(this.grounded && !this.moving){
+      this.idleT += dt;
+      headYaw = Math.sin(this.idleT * 0.9) * 0.22 + Math.sin(this.idleT * 2.3) * 0.05;
+      headPitch = Math.sin(this.idleT * 1.4) * 0.05;
+      /* 闲下来也会扭头理羽（与 AI 鸟同一套逻辑） */
+      if(this.preening < 0){
+        this.preens -= dt;
+        if(this.preens <= 0){ this.preening = 0; this.preanSide = Math.random() < 0.5 ? -1 : 1; }
+      }else{
+        this.preening += dt;
+        const kp = this.preening / 1.7;
+        if(kp >= 1){ this.preening = -1; this.preens = rand(10, 24); }
+        else{
+          const e = Math.sin(Math.PI * clamp(kp, 0, 1));
+          headYaw += this.preanSide * 1.45 * e;
+          headPitch += 0.55 * e;
+        }
+      }
+      // 闲下来偶尔"咕—咕"
+      this.cooT -= dt;
+      if(this.cooT <= 0 && Game.state === 'playing'){ Audio.coo(); this.cooT = rand(6, 14); }
+    }
+    this.headG.position.z = this.headHome.z + headZ;
+    this.headG.position.y = this.headHome.y + Math.abs(headZ) * 0.25;
+    this.headG.rotation.y += (headYaw - this.headG.rotation.y) * damp(dt, 6);
+    this.headG.rotation.x += (headPitch - this.headG.rotation.x) * damp(dt, 16);
+
+    /* ---- 尾：随俯仰摆动；站着不动时轻轻晃 ---- */
+    this.breathT += dt;
+    const breath = 1 + Math.sin(this.breathT * 2.1) * 0.013;
+    const tailTarget = -0.10 + (airborne ? clamp(this.vel.y * 0.05, -0.25, 0.25)
+                       : (this.moving ? 0.03 : 0.03 + Math.sin(this.breathT * 1.4) * 0.05));
+    this.tail.rotation.x += (tailTarget - this.tail.rotation.x) * damp(dt, 8);
+
+    /* ---- 躯干：俯仰 / 落地压缩 / 行走起伏 ---- */
+    this.squash *= Math.exp(-6 * dt);
+    const pitch = airborne ? clamp(-this.vel.y * 0.055, -0.5, 0.45) : 0;
+    const bodyPitch = pitch + (this.grounded && this.moving ? 0.07 : 0);
+    this.body.rotation.x += (bodyPitch - this.body.rotation.x) * damp(dt, 9);
+    this.body.position.y = (this.grounded && this.moving
+      ? Math.abs(Math.sin(this.bobPhase)) * 0.014 : 0) + this.squash * 0.05;
+    const sy = (1 - this.squash * 0.22) * breath;        // 落地压缩 + idle 呼吸
+    this.body.scale.y += (sy - this.body.scale.y) * damp(dt, 16);
+    this.body.scale.x = this.body.scale.z = 1 + this.squash * 0.10;
+    // 受击时短暂偏头
+    if(this.hurtT > 0) this.body.rotation.z = Math.sin(this.hurtT * 40) * 0.25;
+    else this.body.rotation.z *= Math.exp(-6 * dt);
+  }
+}
+
+/* =====================================================================
+ * §9 街区其他鸟类 AI
+ *    珠颈斑鸠（别的个体）/ 山斑鸠 / 麻雀 / 喜鹊 / 丝光椋鸟
+ *    —— 模型全部走和玩家斑鸠同一条 GLTF 管线，写实低面、不卡通。
+ *    行为：自己在窗台上溜达找谷子吃；玩家靠近会躲；
+ *          胆大的种类会专门挑玩家身边的谷子凑过去抢；
+ *          吃掉的谷子直接从场上消失（跟玩家抢同一份食）；
+ *          吃饱了歇一会儿，有时会飞到别的窗台去。
+ * ===================================================================== */
+
+/** 各鸟种的体型/习性参数（写实取向：小雀怕人，喜鹊最横）
+ *  aggr：被逼近时敢不敢硬顶（0=只会逃）；peckDamage：单次啄击掉血；
+ *  peckInterval：两次啄击的间隔（秒）。数值刻意压得很低，打不疼但会被耗。 */
+const BIRD_SPECIES = {
+  spottedDove: { label:'珠颈斑鸠', walk:1.25, fleeDist:0.68, bold:0.80, aggr:0.55, peckDamage:2, peckInterval:1.8,
+                 peckSec:0.42, pause:[5,12], capacity:3, shadow:true,  flyP:0.30, lift:0.020 },
+  turtleDove:  { label:'山斑鸠',   walk:1.10, fleeDist:0.72, bold:0.62, aggr:0.45, peckDamage:2, peckInterval:1.8,
+                 peckSec:0.46, pause:[5,13], capacity:3, shadow:true,  flyP:0.24, lift:0.020 },
+  sparrow:     { label:'麻雀',     walk:1.80, fleeDist:1.20, bold:0.22, aggr:0.15, peckDamage:1, peckInterval:2.0,
+                 peckSec:0.24, pause:[4,9],  capacity:3, shadow:false, flyP:0.55, lift:0.000 },
+  magpie:      { label:'喜鹊',     walk:1.50, fleeDist:0.52, bold:0.98, aggr:0.85, peckDamage:3, peckInterval:1.6,
+                 peckSec:0.38, pause:[6,14], capacity:3, shadow:true,  flyP:0.20, lift:0.030 },
+  starling:    { label:'丝光椋鸟', walk:1.65, fleeDist:1.00, bold:0.42, aggr:0.35, peckDamage:2, peckInterval:1.7,
+                 peckSec:0.30, pause:[5,12], capacity:3, shadow:false, flyP:0.45, lift:0.000 }
+};
+const BIRD_SEARCH_R = 5.0;      // 找谷子的视野半径
+const BIRD_EAT_R    = 0.17;     // 走到多近才低头啄
+const BIRD_BODY_R   = 0.20;     // 与其他鸟/玩家的最小间距（软推开）
+const _ray = new THREE.Raycaster();          // 点击啄鸟用
+const _ndc = new THREE.Vector2();
+
+/** 复制模型并按材质名换色，用于同类鸟之间的个体色差 */
+function tintClone(model, colorByName){
+  const out = model.clone(true);
+  const cache = new Map();
+  out.traverse(o => {
+    if(!o.isMesh || !o.material || !o.material.name) return;
+    const hex = colorByName[o.material.name];
+    if(hex === undefined) return;
+    let m = cache.get(o.material.name);
+    if(!m){ m = o.material.clone(); m.color.setHex(hex); cache.set(m.name, m); }
+    o.material = m;
+  });
+  return out;
+}
+
+/**
+ * 一只 AI 鸟。所有鸟种共用同一套骨架命名（body/headG/wingL/wingR/legL/legR/tail），
+ * 所以动画与行为只写一份，靠 species 参数区分性格与步频。
+ */
+class BirdActor {
+  constructor(scene, model, cfg, platform, index){
+    this.cfg = cfg; this.platform = platform;
+    this.seed = rand(0, 10);
+    this.group = new THREE.Group();
+    this.group.name = `bird_${cfg.label}_${index}`;
+    scene.add(this.group);
+
+    model.traverse(o => { if(o.isMesh) o.castShadow = cfg.shadow; });
+    this.group.add(model);
+
+    this.body  = findDeep(model, 'body');
+    this.headG = findDeep(model, 'headG');
+    this.wingL = findDeep(model, 'wingL');
+    this.wingR = findDeep(model, 'wingR');
+    this.legL  = findDeep(model, 'legL');
+    this.legR  = findDeep(model, 'legR');
+    this.tail  = findDeep(model, 'tail');
+    this.headHome = this.headG ? this.headG.position.clone() : null;
+    this.bodyHome = this.body ? this.body.position.y : 0;
+
+    this.vel = new THREE.Vector3();
+    this.target = new THREE.Vector3();
+    this.heading = rand(0, Math.PI * 2);
+    this.state = 'idle';
+    this.timer = rand(0.4, 2.0);
+    this.fleeT = 0;
+    this.eaten = 0;
+    this.moving = false;
+    this.peckT = -1;
+    this.walkPhase = 0; this.bobPhase = 0; this.flapPhase = 0;
+    this.wingMix = 0; this.legTuck = 0; this.idleT = 0;
+    this.flying = null;
+    this.home = platform;
+    /* 争斗状态：morale 斗志（被啄会掉，掉光就不敢硬顶了）；spooked 被啄怕的剩余时间 */
+    this.morale = 1;
+    this.spooked = 0;
+    this.peckCd = 0;
+    this.active = true;
+    /* idle / 啄食动画用 */
+    this.breathT = rand(0, 6);          // 呼吸相位（错开，免得一群鸟同步起伏）
+    this.preening = -1;                 // >=0 表示正在理羽
+    this.preens = rand(6, 16);          // 距离下一次理羽
+    this.preanSide = 1;
+    this.peckVar = 0;                   // 每口深浅的随机差
+    this.group.userData.bird = this;          // 供点击拾取反查属于哪只鸟
+    this._placeRandom();
+  }
+  _placeRandom(){
+    const p = this.platform;
+    this.group.position.set(
+      rand(p.x0 + 0.35, p.x1 - 0.35), p.y,
+      rand(p.z0 + 0.25, Math.max(p.z0 + 0.30, p.z1 - 0.22))
+    );
+    this.target.copy(this.group.position);
+  }
+  /** 重开一局：放回自己的窗台重新开始 */
+  reset(){
+    this.platform = this.home;
+    this.flying = null; this.state = 'idle'; this.timer = rand(0.3, 1.5);
+    this.eaten = 0; this.peckT = -1;
+    this.morale = 1; this.spooked = 0; this.peckCd = 0;
+    this.vel.set(0, 0, 0);
+    this._placeRandom();
+  }
+
+  /* ---------------- 威胁来源：玩家逼近，或扫帚正在这一层横扫 ---------------- */
+  _threatX(player){
+    let t = null;
+    const pos = this.group.position;
+    if(player){
+      const d = Math.hypot(player.group.position.x - pos.x, player.group.position.z - pos.z);
+      if(player.platform === this.platform && d < Math.max(this.cfg.fleeDist, DBG.fightSpace))
+        t = player.group.position.x;
+    }
+    for(const it of Sweeps.items){
+      if(it.p === this.platform && (it.phase === 'warn' || it.phase === 'swing')){
+        t = t === null ? it.mesh.position.x : t;
+      }
+    }
+    return t;
+  }
+  /** 挑一粒谷子：胆大的鸟会优先挑玩家脚边的（抢食） */
+  _grainTarget(player){
+    const list = Millet.byPlatform.get(this.platform);
+    if(!list || !list.length) return null;
+    const px = this.group.position.x, pz = this.group.position.z;
+    const nearPlayer = player && player.platform === this.platform && this.cfg.bold >= 0.55;
+    let best = null, bs = Infinity;
+    for(const it of list){
+      const p = it.group.position;
+      let s = Math.hypot(p.x - px, p.z - pz);
+      if(nearPlayer) s += Math.hypot(p.x - player.group.position.x, p.z - player.group.position.z) * 1.8;
+      if(s < bs){ bs = s; best = p; }
+    }
+    if(!best || bs > BIRD_SEARCH_R * 2) return null;
+    this.target.set(best.x, this.platform.y, best.z);
+    return this.target;
+  }
+  /** 溜达到窗台上另一个点 */
+  _wander(){
+    const p = this.platform;
+    this.target.set(
+      rand(p.x0 + 0.35, p.x1 - 0.35), p.y,
+      rand(p.z0 + 0.25, Math.max(p.z0 + 0.30, p.z1 - 0.22))
+    );
+    this.state = 'walk';
+    this.timer = rand(1.5, 4.0);
+  }
+  /** 吃饱了：原地歇着，或者飞去别的窗台 */
+  _rest(){
+    const cfg = this.cfg;
+    this.state = 'idle';
+    this.timer = rand(cfg.pause[0], cfg.pause[1]);
+    this.eaten = 0;
+  }
+  /** 被玩家啄了一口：斗志被打掉、一段时间不敢近人，常直接飞去别的窗台 */
+  bePecked(player){
+    this.morale = Math.max(0, this.morale - 0.6);
+    this.spooked = rand(8, 14);
+    this.state = 'flee';
+    this.fleeT = 2.2;
+    this.peckT = -1;
+    const dx = this.group.position.x - player.group.position.x;
+    const dz = this.group.position.z - player.group.position.z;
+    const l = Math.hypot(dx, dz) || 1;
+    this.vel.x += dx / l * 2.6;
+    this.vel.z += dz / l * 2.6;
+    Audio.peck();
+    FX.burst(this.group.position, 8, { color: 0xf0e6d0, speed: 1.1, life: 0.45, size: 0.045, up: 0.9 });
+    UI.toast(`${this.cfg.label}被赶走了`, 0.9);
+    if(Math.random() < 0.6) this._startFly();
+  }
+  /** 在两个窗台之间飞一小段（脚本抛物线，必定安全落地） */
+  _startFly(){
+    const others = PLATFORMS.filter(p => p !== this.platform);
+    if(!others.length) return;
+    const next = others[Math.floor(Math.random() * others.length)];
+    const p0 = this.group.position.clone();
+    const p1 = new THREE.Vector3(
+      rand(next.x0 + 0.35, next.x1 - 0.35), next.y,
+      rand(next.z0 + 0.25, Math.max(next.z0 + 0.30, next.z1 - 0.22))
+    );
+    const dist = p0.distanceTo(p1);
+    this.flying = {
+      p0, p1, t: 0,
+      dur: clamp(0.7 + dist * 0.12, 0.75, 2.2),
+      arc: 0.5 + dist * 0.09,
+      next
+    };
+    this.state = 'fly';
+    this.eaten = 0;
+  }
+  _stepFly(dt){
+    const f = this.flying;
+    f.t += dt / f.dur;
+    const k = clamp(f.t, 0, 1);
+    const e = k * k * (3 - 2 * k);                        // 起落平滑
+    this.group.position.lerpVectors(f.p0, f.p1, e);
+    this.group.position.y += Math.sin(Math.PI * k) * f.arc;
+    const dx = f.p1.x - f.p0.x, dz = f.p1.z - f.p0.z;
+    if(Math.hypot(dx, dz) > 0.05) this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 6, dt);
+    this.vel.set(0, Math.cos(Math.PI * k) * 2.0, 0);
+    this.moving = true;
+    if(k >= 1){
+      this.platform = f.next;
+      this.flying = null;
+      this.state = 'idle';
+      this.timer = rand(0.3, 1.0);
+    }
+  }
+
+  update(dt, player){
+    const cfg = this.cfg;
+    if(this.state === 'fly'){ this._stepFly(dt); this._anim(dt); return; }
+
+    if(this.spooked > 0){                                  // 被啄怕了：这段时间只逃不打
+      this.spooked -= dt;
+      if(this.spooked <= 0) this.morale = 1;
+    }
+    if(this.peckCd > 0) this.peckCd -= dt;
+
+    /* ---- 1) 玩家逼近：胆大的会硬顶，胆小的转身就跑 ---- */
+    const threatX = this._threatX(player);
+    if(threatX !== null){
+      if(this.state !== 'flee' && this.state !== 'fight'){
+        const brave = this.spooked <= 0 &&
+                      Math.random() < this.cfg.aggr * this.morale;   // 斗志越高越敢顶
+        if(brave){ this.state = 'fight'; this.fightT = 0; }
+        else{
+          const dir = Math.sign(this.group.position.x - threatX) ||
+                      (Math.random() < 0.5 ? 1 : -1);
+          this.state = 'flee';
+          this.fleeT = 0.7;
+          this.target.set(this.group.position.x + dir * 3.2, this.platform.y, this.group.position.z);
+          this.peckT = -1;
+        }
+      }
+    }else if(this.state === 'flee'){
+      this.fleeT -= dt;
+      if(this.fleeT <= 0){ this.state = 'idle'; this.timer = rand(0.2, 0.8); }
+    }else if(this.state === 'fight'){                      // 玩家走开就收手
+      this.state = 'idle'; this.timer = rand(0.2, 0.8);
+    }
+
+    /* ---- 2) 状态机 ---- */
+    const pos = this.group.position;
+    this.timer -= dt;
+    switch(this.state){
+      case 'idle':
+        this.moving = false;
+        if(this.timer <= 0){
+          if(this.eaten >= cfg.capacity){ this._rest(); break; }
+          const g = this._grainTarget(player);
+          if(g) this.state = 'seek';
+          else if(Math.random() < cfg.flyP * 0.30) this._startFly();
+          else this._wander();
+        }
+        break;
+      case 'walk':
+        this.moving = true;
+        if(this.timer <= 0 || this._arrived()){ this.state = 'idle'; this.timer = rand(0.2, 0.9); }
+        break;
+      case 'seek': {
+        this.moving = true;
+        const list = Millet.byPlatform.get(this.platform);
+        const g = this._grainTarget(player);
+        if(!g || !list || !list.length){ this.state = 'idle'; this.timer = rand(0.3, 1.0); break; }
+        if(Math.hypot(g.x - pos.x, g.z - pos.z) < BIRD_EAT_R){
+          this.state = 'peck'; this.peckT = 0; this.peckVar = rand(-0.12, 0.12);
+        }
+        break;
+      }
+      case 'peck':
+        this.moving = false;
+        this.peckT += dt;
+        if(this.peckT >= cfg.peckSec){
+          const got = Millet.takeNearest(pos.x, pos.z, this.platform, BIRD_EAT_R + 0.07);
+          if(got){
+            this.eaten++;
+            FX.burst(got, 2, { color:0xe6cf86, speed:0.4, life:0.3, size:0.03, up:0.4 });
+          }
+          this.peckT = -1;
+          if(this.eaten >= cfg.capacity) this._rest();
+          else { this.state = 'idle'; this.timer = rand(0.1, 0.35); }
+        }
+        break;
+      case 'flee':
+        this.moving = true;
+        break;
+      case 'fight': {
+        /* 站在原地盯着玩家，够得着就啄一口；单击它可以把气焰打下去 */
+        this.moving = false;
+        const pp = player ? player.group.position : null;
+        if(pp){
+          const dx = pp.x - pos.x, dz = pp.z - pos.z;
+          const d = Math.hypot(dx, dz);
+          this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 8, dt);
+          if(d < 0.62 && this.peckCd <= 0){
+            this.peckCd = cfg.peckInterval;
+            this.peckT = 0; this.peckVar = rand(-0.12, 0.12);
+            if(player.peckedBy) player.peckedBy(this);
+          }
+        }
+        break;
+      }
+    }
+
+    /* ---- 3) 走动：目标点方向的速度伺服，限制在本窗台范围内 ---- */
+    const toX = this.target.x - pos.x, toZ = this.target.z - pos.z;
+    const dist = Math.hypot(toX, toZ);
+    const arrive = this.state === 'flee' ? 0.12 : 0.10;
+    let tx = 0, tz = 0;
+    if(dist > arrive && (this.state === 'walk' || this.state === 'seek' || this.state === 'flee')){
+      tx = toX / dist * cfg.walk;
+      tz = toZ / dist * cfg.walk;
+      this.moving = true;
+    }else if(this.state === 'walk' || this.state === 'seek'){
+      this.moving = false;
+    }
+    const k = damp(dt, 9);
+    this.vel.x += (tx - this.vel.x) * k;
+    this.vel.z += (tz - this.vel.z) * k;
+    pos.x += this.vel.x * dt;
+    pos.z += this.vel.z * dt;
+
+    // 不出窗台、不进墙
+    const p = this.platform;
+    pos.x = clamp(pos.x, p.x0 + 0.10, p.x1 - 0.10);
+    pos.z = clamp(pos.z, 0.13, Math.max(0.16, p.z1 - 0.08));
+    pos.y = p.y;
+
+    if(this.moving && (Math.abs(this.vel.x) + Math.abs(this.vel.z)) > 0.06){
+      this.heading = dampAngle(this.heading, Math.atan2(this.vel.x, this.vel.z), 7, dt);
+    }
+    this._anim(dt);
+  }
+  _arrived(){
+    return Math.hypot(this.target.x - this.group.position.x,
+                      this.target.z - this.group.position.z) < 0.12;
+  }
+
+  /** 走/站/飞三种姿态的动画，规则与玩家斑鸠一致（只是简化了） */
+  _anim(dt){
+    if(!this.body) return;
+    this.group.rotation.y = this.heading;
+    const airborne = this.state === 'fly';
+    const moving = this.moving && !airborne;
+
+    this.walkPhase += dt * (moving ? 10.0 : 0);
+    const swing = Math.sin(this.walkPhase) * (moving ? 0.70 : 0);
+    this.legTuck += ((airborne ? 1 : 0) - this.legTuck) * damp(dt, 10);
+    if(this.legL) this.legL.rotation.x = lerp(swing, -1.10, this.legTuck);
+    if(this.legR) this.legR.rotation.x = lerp(-swing, -1.10, this.legTuck);
+
+    this.wingMix += ((airborne ? 1 : 0) - this.wingMix) * damp(dt, 8);
+    let flapA;
+    if(airborne){ this.flapPhase += dt * 15; flapA = Math.sin(this.flapPhase) * 0.95; }
+    else { this.flapPhase += dt * 1.1; flapA = -0.12; }
+    const za = lerp(-0.12, flapA, this.wingMix);
+    const sweep = lerp(0.06, 0.62, this.wingMix);
+    if(this.wingR){ this.wingR.rotation.z = za;  this.wingR.rotation.y = sweep; }
+    if(this.wingL){ this.wingL.rotation.z = -za; this.wingL.rotation.y = -sweep; }
+
+    let headZ = 0, headPitch = 0, headYaw = 0;
+    if(moving){
+      this.bobPhase += dt * 10.0;
+      headZ = Math.sin(this.bobPhase) * 0.010;
+      headPitch = Math.abs(Math.sin(this.bobPhase)) * 0.05;
+    }
+    if(this.peckT >= 0){
+      const k2 = clamp(this.peckT / Math.max(0.01, this.cfg.peckSec), 0, 1);
+      const dip = Math.sin(k2 * Math.PI);
+      headPitch += dip * (0.9 + this.peckVar);           // 低头啄食，每口深浅略有差别
+      headZ += dip * 0.020;                              // 顺带向前一探
+    }else if(!moving && !airborne){
+      this.idleT += dt;
+      headYaw = Math.sin(this.idleT * 1.1 + this.seed) * 0.30;   // 左右张望
+      headPitch = Math.sin(this.idleT * 1.7 + this.seed) * 0.06;
+      /* Idle 理羽：闲久了扭头回去啄翅膀，1.7 秒一次 */
+      if(this.preening < 0){
+        this.preens -= dt;
+        if(this.preens <= 0){ this.preening = 0; this.preanSide = Math.random() < 0.5 ? -1 : 1; }
+      }else{
+        this.preening += dt;
+        const k3 = this.preening / 1.7;
+        if(k3 >= 1){ this.preening = -1; this.preens = rand(9, 22); }
+        else{
+          const e = Math.sin(Math.PI * clamp(k3, 0, 1));
+          headYaw += this.preanSide * 1.45 * e;
+          headPitch += 0.55 * e;
+        }
+      }
+    }
+    if(this.headG && this.headHome){
+      this.headG.position.z = this.headHome.z + headZ;
+      this.headG.rotation.y += (headYaw - this.headG.rotation.y) * damp(dt, 6);
+      this.headG.rotation.x += (headPitch - this.headG.rotation.x) * damp(dt, 16);
+    }
+    /* Idle 呼吸 + 尾羽轻摆：让站着不动的鸟也有活气 */
+    this.breathT += dt;
+    const breath = 1 + Math.sin(this.breathT * 2.1 + this.seed) * 0.014;
+    this.body.scale.y += (breath - this.body.scale.y) * damp(dt, 6);
+    if(this.tail){
+      const tt = -0.10 + (this.peckT >= 0 ? 0.07 :
+                  (moving ? 0.02 : Math.sin(this.breathT * 1.4 + this.seed) * 0.05));
+      this.tail.rotation.x += (tt - this.tail.rotation.x) * damp(dt, 6);
+    }
+    this.body.position.y = this.bodyHome +
+      (moving ? Math.abs(Math.sin(this.bobPhase)) * 0.010 : 0);
+    const pitch = airborne ? clamp(-this.vel.y * 0.05, -0.4, 0.4) : (moving ? 0.05 : 0);
+    this.body.rotation.x += (pitch - this.body.rotation.x) * damp(dt, 8);
+  }
+}
+
+/** 鸟群管理：生成、逐只更新、彼此与玩家的软分离 */
+const AI_PLAN = [                                      // 种类 / 模型 / 常驻窗台（循环取用）
+  ['spottedDove', 'doveVariantA', 'A'],
+  ['spottedDove', 'doveVariantB', 'E'],
+  ['turtleDove',  'turtleDove',   'E'],
+  ['magpie',      'magpie',       'E'],
+  ['starling',    'starling',     'H'],
+  ['sparrow',     'sparrow',      'A'],
+  ['sparrow',     'sparrow',      'H']
+];
+const AI_HARD_MAX = 14;                                // 再多影响流畅度，硬上限
+
+class AIFlock {
+  constructor(scene, models){
+    this.scene = scene; this.models = models;
+    this.birds = [];
+    this._pickList = [];                                // 点击拾取用的 mesh 缓存
+    this._applied = -1;
+    this.setCount(DBG.aiMax);
+  }
+  _addOne(){
+    const i = this.birds.length;
+    const [sp, modelKey, pid] = AI_PLAN[i % AI_PLAN.length];
+    const cfg = BIRD_SPECIES[sp];
+    const plat = PLATFORMS.find(p => p.id === pid) || PLATFORMS[0];
+    const src = this.models[modelKey] || this.models.dove;
+    const b = new BirdActor(this.scene, src.clone(true), cfg, plat, i);
+    this.birds.push(b);
+    return b;
+  }
+  /** 控制台改 GAME_DEBUG.aiMax 即时生效：不够就补、多了就收起来（不销毁模型） */
+  setCount(n){
+    n = clamp(Math.round(Number(n) || 0), 0, AI_HARD_MAX);
+    while(this.birds.length < n) this._addOne();
+    this.birds.forEach((b, i) => {
+      const on = i < n;
+      b.active = on;
+      b.group.visible = on;
+      if(!on){ b.flying = null; b.state = 'idle'; b.peckT = -1; }
+    });
+    DBG.aiMax = n;
+    this._applied = n;
+  }
+  reset(){ for(const b of this.birds) if(b.active) b.reset(); }
+  update(dt, player){
+    if(DBG.aiMax !== this._applied) this.setCount(DBG.aiMax);   // 控制台改完即生效
+    for(const b of this.birds) if(b.active) b.update(dt, player);
+
+    /* 软分离：鸟之间、鸟与玩家之间不要叠在一起（争抢时看得出来在互相挤） */
+    const list = this.birds;
+    for(let i = 0; i < list.length; i++){
+      const a = list[i];
+      if(!a.active) continue;
+      for(let j = i + 1; j < list.length; j++){
+        const b = list[j];
+        if(!b.active || a.platform !== b.platform) continue;
+        const pa = a.group.position, pb = b.group.position;
+        const dx = pb.x - pa.x, dz = pb.z - pa.z;
+        const d = Math.hypot(dx, dz);
+        if(d > 0.001 && d < BIRD_BODY_R * 2){
+          const push = (BIRD_BODY_R * 2 - d) * 0.5;
+          const ux = dx / d, uz = dz / d;
+          pa.x -= ux * push; pa.z -= uz * push;
+          pb.x += ux * push; pb.z += uz * push;
+        }
+      }
+      const b = list[i];
+      if(!b.active || !player || b.platform !== player.platform) continue;
+      const pb = b.group.position, pp = player.group.position;
+      const dx = pb.x - pp.x, dz = pb.z - pp.z;
+      const d = Math.hypot(dx, dz);
+      if(d > 0.001 && d < BIRD_BODY_R + 0.16){             // 玩家比鸟"重"，把鸟挤开
+        const push = (BIRD_BODY_R + 0.16 - d);
+        pb.x += dx / d * push; pb.z += dz / d * push;
+      }
+    }
+  }
+  /** 与玩家同层的鸟数（HUD 显示"同台鸟"） */
+  countWith(platform){ return platform ? this.birds.filter(b => b.active && b.platform === platform).length : 0; }
+
+  /** 左键点鸟：够得着就把这只鸟啄走，够不着只提醒一下 */
+  tryPeck(ndcX, ndcY, player){
+    if(Game.state !== 'playing') return false;
+    _ray.setFromCamera(_ndc.set(ndcX, ndcY), camera);
+    this._pickList.length = 0;
+    for(const b of this.birds){
+      if(!b.group.visible) continue;
+      b.group.traverse(o => { if(o.isMesh) this._pickList.push(o); });
+    }
+    const hit = _ray.intersectObjects(this._pickList, false)[0];
+    if(!hit) return false;
+    let o = hit.object, owner = null;
+    while(o && !owner){ owner = o.userData && o.userData.bird; o = o.parent; }
+    if(!owner) return false;
+    player.peck();                                      // 无论远近都做出啄击动作
+    const d = Math.hypot(owner.group.position.x - player.group.position.x,
+                         owner.group.position.z - player.group.position.z);
+    if(d > DBG.peckReach || owner.platform !== player.platform){
+      UI.toast('太远了，走近再啄', 0.8);
+      return true;
+    }
+    owner.bePecked(player);
+    return true;
+  }
+}
+
+/* =====================================================================
+ * §10 相机 rig —— 第三人称跟随，右键拖拽旋转，滚轮缩放
+ *    特例：本作相机在"街上"，墙面是 z=0 的半空间，相机被墙挤到时
+ *    会顺着墙往上抬（而不是把镜头压到鸟脸上）。
+ * ===================================================================== */
+class CameraRig {
+  constructor(camera, bird){
+    this.cam = camera; this.bird = bird;
+    this.baseYaw = bird.heading; this.userYaw = 0;
+    this.userPitch = 0;
+    this.dist = DBG.cameraDist;
+    this.orbiting = false;
+    this.cinePitch = null;                              // 通关运镜用；平时为 null
+    this.totalYaw = this.baseYaw;
+    this.pos = new THREE.Vector3(-3.6, 1.0, 3.4);
+    this.look = new THREE.Vector3(-3.6, 0.2, 0.9);
+    this._last = { x: null, y: null };
+  }
+  update(dt){
+    const b = this.bird.group.position;
+    /* 通关运镜：镜头缓缓拉远、沉到鸟的下方仰拍，看它一路飞上去 */
+    if(Game.state === 'win'){
+      if(this.cinePitch === null) this.cinePitch = DBG.cameraPitchBase + this.userPitch;
+      this.cinePitch += (-0.34 - this.cinePitch) * damp(dt, 0.9);
+      this.baseYaw   = dampAngle(this.baseYaw, Math.PI, 0.7, dt);
+      this.dist += (6.6 - this.dist) * damp(dt, 1.0);
+    }
+    /* 只有"往前跑"时才把相机转到鸟背后。
+       侧移（A/D）时若也跟着转，会因为"输入相对相机"而把鸟带成绕圈，
+       在这条窄窗台上是致命的，所以侧移时锁住相机朝向。 */
+    const forwardDrive = this.bird.inputZ > 0 &&
+                         Math.abs(this.bird.inputZ) >= Math.abs(this.bird.inputX);
+    const moving = (this.bird.moving || !this.bird.grounded) && !this.orbiting && forwardDrive;
+    if(moving){                                          // 移动时相机缓缓转到鸟背后
+      this.baseYaw = dampAngle(this.baseYaw, this.bird.heading, 1.9, dt);
+      this.userYaw *= Math.exp(-1.5 * dt);
+    }
+    this.totalYaw = this.baseYaw + this.userYaw;
+    const pitch = this.cinePitch !== null
+      ? this.cinePitch                                   // 通关时可低于水平线（仰拍）
+      : clamp(DBG.cameraPitchBase + this.userPitch, 0.06, 1.15);
+    const horiz = this.dist * Math.cos(pitch), vert = this.dist * Math.sin(pitch);
+
+    let cx = b.x - Math.sin(this.totalYaw) * horiz;
+    let cz = b.z - Math.cos(this.totalYaw) * horiz;
+    let cy = b.y + 0.26 + vert;
+
+    // 被墙挤到：把损失的水平距离换成高度，镜头顺着墙面抬起来
+    if(cz < DBG.wallMinCameraZ){
+      const lost = DBG.wallMinCameraZ - cz;
+      cz = DBG.wallMinCameraZ;
+      cy += lost * 0.85;
+    }
+    if(cy < 0.30) cy = 0.30;
+
+    _v1.set(cx, cy, cz);
+    this.pos.lerp(_v1, damp(dt, 8));
+    this.cam.position.copy(this.pos);
+
+    _v2.set(b.x, b.y + 0.18, b.z);
+    this.look.lerp(_v2, damp(dt, 11));
+    this.cam.lookAt(this.look);
+  }
+}
+
+/* =====================================================================
+ * §11 粒子特效 —— 对象池 + 精灵，用于落地扬尘、啄食碎屑、受击
+ * ===================================================================== */
+const FX = {
+  init(scene){
+    this.scene = scene;
+    this.pool = [];
+    const tex = softCircleTexture();
+    for(let i = 0; i < 48; i++){
+      const m = new THREE.SpriteMaterial({
+        map: tex, transparent: true, depthWrite: false, opacity: 0, fog: true
+      });
+      const s = new THREE.Sprite(m);
+      s.visible = false;
+      scene.add(s);
+      this.pool.push({ s, life: 0, max: 1, v: new THREE.Vector3(), size: 0.05 });
+    }
+  },
+  burst(pos, n, opt = {}){
+    const { color = 0xffffff, speed = 1, life = 0.5, size = 0.05, up = 0.6 } = opt;
+    let spawned = 0;
+    for(const p of this.pool){
+      if(spawned >= n) break;
+      if(p.life > 0) continue;
+      p.s.visible = true;
+      p.s.material.color.setHex(color);
+      p.s.position.set(pos.x + rand(-0.05, 0.05), pos.y + 0.04, pos.z + rand(-0.05, 0.05));
+      const a = rand(0, Math.PI * 2), r = rand(0.2, 1) * speed;
+      p.v.set(Math.cos(a) * r, rand(0.3, 1) * up * speed, Math.sin(a) * r);
+      p.life = p.max = life * rand(0.75, 1.25);
+      p.size = size * rand(0.7, 1.4);
+      p.s.scale.setScalar(p.size);
+      spawned++;
+    }
+  },
+  update(dt){
+    for(const p of this.pool){
+      if(p.life <= 0) continue;
+      p.life -= dt;
+      if(p.life <= 0){ p.s.visible = false; p.s.material.opacity = 0; continue; }
+      p.v.y -= 3.2 * dt;
+      p.s.position.addScaledVector(p.v, dt);
+      const k = p.life / p.max;
+      p.s.material.opacity = k * 0.8;
+      p.s.scale.setScalar(p.size * (1.6 - k * 0.6));
+    }
+  }
+};
+
+/* =====================================================================
+ * §12 游戏主控 & 输入
+ * ===================================================================== */
+const BEST_KEY = 'doveWindowsillScore';
+
+const Game = {
+  state: 'loading',            // loading | playing | over | win
+  hp: 100, hpMax: 150,
+  score: 0,
+  best: 0,
+  elapsed: 0,
+  winT: 0,
+  winNewRecord: false,
+  nextHintScore: 25,
+
+  start(){
+    this.state = 'playing';
+    this.hpMax = DBG.hpMax;
+    this.hp = DBG.hpStart;                             // 开局 100 / 上限 150
+    this.score = 0;
+    this.elapsed = 0;
+    this.winT = 0;
+    this.winNewRecord = false;
+    this._winScreenShown = false;
+    this.nextHintScore = 25;
+    UI.startScreen.style.display = 'none';
+    UI.overScreen.style.display = 'none';
+    UI.winScreen.style.display = 'none';
+    UI.hideWinBanner();
+    UI.setWinVignette(0);
+    World.winGlow.visible = false;
+    Bird.reset();
+    Millet.reset();
+    Sweeps.reset();
+    Flock.reset();
+    Rig.cinePitch = null;                              // 退出通关运镜
+    Rig.dist = DBG.cameraDist;
+    Rig.baseYaw = Bird.heading; Rig.userYaw = 0;
+    Rig.pos.set(-3.6, 1.0, 3.4);
+    Audio.init();
+    UI.setHp(this.hp, this.hpMax);
+    UI.clearHurtGhost();
+    UI.setScore(0, DBG.scoreGoal);
+    UI.toast(`窗台会随机刷新谷子 · 攒够 ${DBG.scoreGoal} 分完成成长`, 2.8);
+  },
+  /** 啄到一粒谷子：加积分 + 回血 */
+  eat(pos){
+    this.score += DBG.scorePerGrain;
+    if(this.score > this.best) this._recordScore();      // 边玩边存，意外关页面也不丢记录
+    const beforeHp = this.hp;
+    this.hp = Math.min(this.hpMax, this.hp + DBG.hpPerGrain);
+    UI.setScore(this.score, DBG.scoreGoal);
+    UI.setHp(this.hp, this.hpMax);                      // 立即同步血条
+    if(this.hp > beforeHp) UI.healFlash();
+    UI.pop(pos, `+${DBG.scorePerGrain}`);
+    Audio.peck(); Audio.eat();
+    FX.burst(pos, 3, { color: 0xe6cf86, speed: 0.6, life: 0.35, size: 0.035, up: 0.5 });
+    if(this.score >= DBG.scoreGoal){ this.win(); return; }
+    if(this.score >= this.nextHintScore){
+      UI.toast(`成长进度 ${this.score} / ${DBG.scoreGoal}`, 1.3);
+      this.nextHintScore += 25;
+    }
+  },
+  /** 被扫帚打到、或自然消耗导致血量归零 */
+  damage(n){
+    if(this.state !== 'playing') return;
+    const before = this.hp;
+    this.hp -= n;
+    UI.setHp(this.hp, this.hpMax);                      // 立即同步，不等下一帧
+    UI.hurtFlash(before / this.hpMax);                  // 条子上留一段红色残影
+    if(this.hp <= 0){ this.hp = 0; UI.setHp(0, this.hpMax); this.over('down'); }
+  },
+  update(dt){
+    if(this.state === 'win'){ this.winT += dt; this.updateWin(); return; }
+    if(this.state !== 'playing') return;
+    this.elapsed += dt;
+    this.hp -= DBG.hpDrain * dt;
+    UI.setHp(this.hp, this.hpMax);                      // 掉血与刷新同一帧完成
+    if(this.hp <= 0){ this.hp = 0; UI.setHp(0, this.hpMax); this.over('down'); }
+  },
+  /** 最高积分记录 */
+  _recordScore(){
+    if(this.score > this.best){
+      this.best = this.score;
+      try { localStorage.setItem(BEST_KEY, String(this.best)); } catch(e){}
+      UI.setBest(this.best);
+      return true;
+    }
+    return false;
+  },
+  /** 成长完成 —— 触发通关动画：展翅起飞，飞向鸠子乐园 */
+  win(){
+    if(this.state !== 'playing') return;
+    this.state = 'win';
+    this.winT = 0;
+    this.winNewRecord = this._recordScore();
+    UI.setHp(this.hp, this.hpMax);
+    UI.showWinBanner();
+    UI.toast('成长完成！飞向鸠子乐园', 2.4);
+    Audio.win();
+    // 起飞瞬间的金色爆发
+    FX.burst(Bird.group.position, 18, { color: 0xffe08a, speed: 1.8, life: 1.1, size: 0.07, up: 1.2 });
+  },
+  /** 通关动画期间：暖金色渐晕 + 光晕跟着鸟一起升空，末尾交给通关界面 */
+  updateWin(){
+    const k = clamp(this.winT / 1.5, 0, 1);             // 渐入
+    const fade = 1 - clamp((this.winT - DBG.winAnimSec + 1.1) / 1.1, 0, 1);   // 末尾渐隐
+    UI.setWinVignette(0.95 * k * fade);
+    const g = World.winGlow;
+    g.visible = true;
+    g.position.copy(Bird.group.position);
+    g.material.opacity = 0.9 * k * fade;
+    const s = 3.2 + k * 7.5;
+    g.scale.set(s, s, 1);
+    if(this.winT >= DBG.winAnimSec && !this._winScreenShown){
+      this._winScreenShown = true;                      // 只弹一次
+      UI.showWinScreen(this.score, this.best, this.winNewRecord);
+    }
+  },
+  over(reason){
+    if(this.state !== 'playing') return;
+    this.state = 'over';
+    const map = {
+      down: ['倒在窗台上了', '血量耗尽 —— 谷子没吃够，力气先没了…'],
+      fall: ['掉到楼下了',   '飞出去的一瞬间，窗台变成了头顶的一条线…']
+    };
+    UI.overTitle.textContent = map[reason][0];
+    UI.overSub.textContent   = map[reason][1];
+    UI.finalScore.textContent = this.score;
+    UI.newRecord.style.display = this._recordScore() ? 'block' : 'none';
+    UI.finalBest.textContent = this.best;
+    if(reason === 'fall') Audio.fall();
+    UI.overScreen.style.display = 'flex';
+  }
+};
+
+/* ---------------- 输入绑定 ---------------- */
+function bindInputs(){
+  const cv = renderer.domElement;
+  window.addEventListener('keydown', e => {
+    if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+    if(e.repeat) return;
+    keys.add(e.code);
+    if(e.code === 'Space') Bird.hop();                          // 短距离扑跳
+    if(e.code === 'KeyM'){ const m = Audio.toggleMute(); UI.toast(m ? '已静音' : '声音开启', 0.8); }
+    if(e.code === 'KeyH') UI.toggleHint();
+  });
+  window.addEventListener('keyup', e => keys.delete(e.code));
+
+  cv.addEventListener('mousedown', e => {
+    if(e.button === 0){                                          // 左键：啄旁边的鸟，把它赶走
+      if(!Flock.tryPeck(mouse.x, mouse.y, Bird)) Bird.peck();
+      return;
+    }
+    if(e.button === 2){                                          // 右键拖拽旋转视角
+      Rig.orbiting = true;
+      Rig._last.x = e.clientX; Rig._last.y = e.clientY;
+    }
+  });
+  window.addEventListener('mouseup', e => { if(e.button === 2) Rig.orbiting = false; });
+  window.addEventListener('mousemove', e => {
+    mouse.px = e.clientX; mouse.py = e.clientY;
+    mouse.x = (e.clientX / innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+    if(Rig && Rig.orbiting){
+      if(Rig._last.x !== null){
+        Rig.userYaw  -= (e.clientX - Rig._last.x) * 0.0045;
+        Rig.userPitch = clamp(Rig.userPitch + (e.clientY - Rig._last.y) * 0.003, -0.22, 0.85);
+      }
+      Rig._last.x = e.clientX; Rig._last.y = e.clientY;
+    }else if(Rig) Rig._last.x = null;
+  });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('wheel', e => {
+    if(Rig) Rig.dist = clamp(Rig.dist * (1 + e.deltaY * 0.0009),
+                             DBG.cameraMinDist, DBG.cameraMaxDist);
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+/* ---------------- 主循环 ---------------- */
+const clock = new THREE.Clock();
+let fpsAcc = 0, fpsN = 0, fpsT = 0;
+function tick(){
+  const raw = Math.min(clock.getDelta(), 0.05);
+  const dt = raw * DBG.timeScale;
+
+  Game.update(dt);
+  Bird.update(dt);
+  Flock.update(dt, Bird);
+  Rig.update(dt);
+  Millet.update(dt);
+  Sweeps.update(dt);
+  FX.update(dt);
+  UI.update(dt);
+
+  for(const c of World.clouds){                       // 云缓慢漂移
+    c.position.x += dt * 0.55;
+    if(c.position.x > 150) c.position.x = -150;
+  }
+
+  UI.setHp(Game.hp, Game.hpMax);
+  if(Bird.platform){
+    UI.setPlace(Bird.group.position.y, Bird.platform.name);
+    UI.setBirds(Flock.countWith(Bird.platform));
+  }
+
+  if(DBG.showStatsOverlay){
+    UI.fpsEl.style.display = 'block';
+    fpsAcc += 1 / Math.max(raw, 1e-4); fpsN++; fpsT += raw;
+    if(fpsT > 0.5){ UI.fpsEl.textContent = `FPS ${Math.round(fpsAcc / fpsN)}`; fpsAcc = fpsN = fpsT = 0; }
+  }else UI.fpsEl.style.display = 'none';
+
+  renderer.render(scene, camera);
+}
+
+/* ---------------- 启动 ---------------- */
+let renderer, scene, camera, MODELS, Bird, Flock, Rig, World, Millet, Sweeps, UI, Audio;
+
+async function main(){
+  UI = new UIManager();
+  try { Game.best = parseInt(localStorage.getItem(BEST_KEY), 10) || 0; } catch(e){ Game.best = 0; }
+  UI.setBest(Game.best);
+  UI.setScore(0, DBG.scoreGoal);
+  UI.setHp(DBG.hpStart, DBG.hpMax);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.98;
+  document.body.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.05, 600);
+  camera.position.set(-3.6, 1.2, 3.6);
+
+  Audio = new AudioManager();
+
+  /* 模型经 GLTF 管线生成（导出 GLB -> GLTFLoader 读回） */
+  MODELS = {
+    dove:      await gltfRoundtrip(Factory.dove()),
+    turtleDove:await gltfRoundtrip(Factory.turtleDove()),
+    sparrow:   await gltfRoundtrip(Factory.sparrow()),
+    magpie:    await gltfRoundtrip(Factory.magpie()),
+    starling:  await gltfRoundtrip(Factory.starling()),
+    millet:    await gltfRoundtrip(Factory.millet()),
+    broom:     await gltfRoundtrip(Factory.broom()),
+    car:       await gltfRoundtrip(Factory.car()),
+    tree:      await gltfRoundtrip(Factory.tree())
+  };
+  /* 别的珠颈斑鸠个体：拿玩家模型做轻微色差，免得一街的鸟长得一模一样 */
+  MODELS.doveVariantA = tintClone(MODELS.dove, { back:0x9b8f83, breast:0xc6ada6, head:0xb2abaa });
+  MODELS.doveVariantB = tintClone(MODELS.dove, { back:0xb3a99d, breast:0xd4bfb9, head:0xc2bbb8 });
+
+  FX.init(scene);
+  World  = buildWorld(scene);
+  Millet = new MilletSystem(scene, MODELS.millet);
+  Sweeps = new SweepSystem(scene, MODELS.broom, World.windows);
+
+  Bird = new DovePlayer(scene, MODELS.dove);
+  Flock = new AIFlock(scene, MODELS);
+  Rig  = new CameraRig(camera, Bird);
+  Rig.update(0.016);
+
+  bindInputs();
+  renderer.setAnimationLoop(tick);
+
+  /* 运行期对象挂到 window.GAME，方便在控制台里直接观察/微调 */
+  Object.assign(window.GAME, { Bird, Flock, Rig, World, Millet, Sweeps, UI, BIRD_SPECIES, PLATFORMS });
+
+  UI.startBtn.disabled = false;
+  UI.startBtn.textContent = '开始觅食';
+  UI.startBtn.addEventListener('click', () => Game.start());
+  document.getElementById('restartBtn').addEventListener('click', () => Game.start());
+  document.getElementById('winBtn').addEventListener('click', () => Game.start());
+  window.__booted = true;
+}
+
+/* 暴露到控制台便于调试 */
+window.GAME = { Game, DovePlayer, PLATFORMS, DBG };
+
+main().catch(err => {
+  console.error(err);
+  const d = document.getElementById('bootError');
+  if(d){
+    d.innerHTML = '启动失败：' + (err && err.message ? err.message : err) +
+                  '<br/>请检查网络连接后刷新页面';
+    d.style.display = 'flex';
+  }
+});
+</script>
+</body>
+</html>
