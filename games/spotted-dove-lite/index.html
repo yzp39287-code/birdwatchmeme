@@ -1,0 +1,1091 @@
+<!--
+================================================================================
+  游戏名称：珠颈斑鸠躲避游隼
+  游戏类型：2D 横版躲避觅食（单文件 HTML5 Canvas 游戏）
+  文件类型：index.html（单文件，内嵌 CSS + JavaScript，零外部依赖、零外部素材）
+  逻辑分辨率：1280 × 720（等比自适应缩放，适配桌面与手机）
+  技术栈：原生 HTML5 + Canvas 2D + JavaScript（ES6+）+ WebAudio 程序化音效
+  兼容：Chrome / Edge / Firefox / Safari 现代版本；桌面键盘 + 手机触屏双支持
+
+  【玩法】
+  扮演一只珠颈斑鸠，在街道、居民楼窗台与小树林间觅食攒积分：
+  小米 1 分、玉米 2 分、花生米 3 分；总分超过 1000 即通关，斑鸠成长后飞向城市。
+  游隼会周期性飞来巡逻俯冲，被抓住则游戏失败、积分清零、从头开始。
+  唯一避险方式：整只躲进小树林的绿色虚线树冠范围内（窗台不是安全区）。
+
+  【操作】
+  桌面键盘：← → 左右移动 | ↑ 上窗台/上人行道 | ↓ 下来 | 空格 扑翼冲刺（地面）或上窗台（靠近楼时）
+              P / Esc 暂停 | R 失败后重开 | M 静音切换
+  手机触屏：页面自动显示虚拟方向键（左下）+ 上窗台/扑翼冲刺按钮（右下）
+
+  【部署提示（重要）】
+  本游戏是纯静态单文件，无需后端、无需构建工具、无需 npm、无需数据库。
+  上传到任意静态网站托管即可运行：GitHub Pages / Netlify / Vercel / 云服务器 Nginx /
+  阿里云 OSS / 腾讯云 COS 静态托管 / 个人虚拟主机。
+  只需把本文件命名为 index.html 放在网站根目录，访问域名即可直接打开游戏。
+
+  【代码结构（JavaScript 内按数字分区注释，便于定位修改）】
+  ① CONFIG       —— 所有可调数值集中在文件顶部（难度、速度、频率、积分等）
+  ② 输入          —— 键盘事件 + 触屏虚拟按键
+  ③ 音效          —— WebAudio 程序化合成（啄食/扑翅/隼叫/警报/胜负）
+  ④ 地图数据      —— 居民楼、窗台、三处小树林的坐标
+  ⑤ 食物实体+生成器 —— 三种食物、窗台/路面双来源、权重随积分分档
+  ⑥ 珠颈斑鸠      —— 主角实体（移动/冲刺/上下层/安全判定）
+  ⑦ 游隼状态机    —— away→warn→enter→patrol→dive→recover→exit，每轮只俯冲一次
+  ⑧ 粒子/飘字     —— 进食特效、+分飘字、冲刺风线
+  ⑨ 游戏状态机    —— menu / playing / paused / dead / win
+  ⑩ 逻辑更新      —— 每帧固定步长更新
+  ⑪ 场景渲染      —— 天空/云/楼/窗台/街道/树林/城市天际线
+  ⑫ 角色矢量绘制  —— 斑鸠与游隼的 Canvas 矢量画法（预留 SPRITES 精灵图替换接口）
+  ⑬ 食物绘制
+  ⑭ HUD/预警特效  —— 积分/进度条/冲刺冷却/红色警报框/隼影
+  ⑮ 总渲染
+  ⑯ 主循环        —— requestAnimationFrame + 固定 1/60 逻辑步长
+
+  【精灵图替换接口】
+  代码顶部定义了 const SPRITES = { dove:null, falcon:null };
+  若后续想用自己画的图片替换矢量鸟，加载图片后赋值给 SPRITES.dove / SPRITES.falcon 即可，
+  drawDove / drawFalcon 会自动切换为 drawImage 渲染。
+================================================================================
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>珠颈斑鸠街区历险记 · 轻量版</title>
+<style>
+  /* ============ 页面基础布局 ============ */
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#1c2530;
+    font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif; user-select:none; }
+  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  #game { display:block; background:#bfe3f2; box-shadow:0 10px 40px rgba(0,0,0,.45); border-radius:6px; touch-action:none; }
+
+  /* ============ 覆盖层（菜单/暂停/失败/通关） ============ */
+  .overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    background:rgba(20,30,42,.55); backdrop-filter:blur(2px); z-index:20; }
+  .card { width:560px; max-width:92%; background:linear-gradient(180deg,#fffaf0,#f3e7d3);
+    border:3px solid #caa46a; border-radius:18px; padding:30px 34px; text-align:center;
+    box-shadow:0 14px 40px rgba(0,0,0,.4); color:#4a3b28; }
+  .card h1 { font-size:34px; color:#7a5219; margin-bottom:6px; letter-spacing:2px; }
+  .card h2 { font-size:28px; color:#9c3b2e; margin-bottom:10px; }
+  .card .sub { font-size:15px; color:#8a7655; margin-bottom:16px; }
+  .rules { text-align:left; font-size:14.5px; line-height:1.95; background:#fffdf6;
+    border:1px dashed #d3b784; border-radius:12px; padding:12px 18px; margin-bottom:20px; color:#5d4d36; }
+  .rules b { color:#2f7d4f; } .rules .hawk { color:#b3402f; font-weight:bold; }
+  .btn { display:inline-block; border:none; cursor:pointer; font-size:20px; font-weight:bold;
+    color:#fff; background:linear-gradient(180deg,#e0a142,#c87d22); padding:12px 42px; border-radius:999px;
+    box-shadow:0 5px 0 #9a5f17, 0 8px 16px rgba(0,0,0,.25); transition:transform .08s, box-shadow .08s;
+    font-family:inherit; letter-spacing:3px; }
+  .btn:active { transform:translateY(4px); box-shadow:0 1px 0 #9a5f17; }
+  .btn.alt { background:linear-gradient(180deg,#7fae8b,#568866); box-shadow:0 5px 0 #3f664b, 0 8px 16px rgba(0,0,0,.25); margin-left:12px; }
+  .btn.alt:active { box-shadow:0 1px 0 #3f664b; }
+  .best { margin-top:14px; font-size:14px; color:#a0895f; }
+  .hidden { display:none !important; }
+
+  /* ============ 右上角静音按钮 ============ */
+  #muteBtn { position:absolute; top:12px; right:12px; z-index:15; width:42px; height:42px;
+    border-radius:50%; border:2px solid rgba(255,255,255,.7); background:rgba(30,40,50,.55);
+    color:#fff; font-size:18px; cursor:pointer; }
+
+  /* ============ 触屏虚拟按键（仅触屏设备显示） ============ */
+  #touch { position:absolute; inset:0; z-index:14; pointer-events:none; display:none; }
+  body.touch #touch { display:block; }
+  .tbtn { position:absolute; pointer-events:auto; width:64px; height:64px; border-radius:50%;
+    background:rgba(40,55,70,.45); border:2px solid rgba(255,255,255,.55); color:#fff;
+    font-size:26px; display:flex; align-items:center; justify-content:center; }
+  #t-left  { left:22px; bottom:26px; } #t-right { left:96px; bottom:26px; }
+  #t-left  { left:24px; bottom:92px; } #t-right { left:96px; bottom:92px; }
+  #t-up    { left:60px; bottom:160px; }
+  #t-down2 { left:60px; bottom:24px; }
+  #t-flap  { right:30px; bottom:40px; width:86px; height:86px; font-size:17px; letter-spacing:1px;
+    background:rgba(196,110,44,.55); border-color:rgba(255,220,170,.8); }
+  #t-climb { right:126px; bottom:48px; width:70px; height:70px; font-size:15px; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+
+  <button id="muteBtn" title="静音 (M)">🔊</button>
+
+  <!-- 触屏控件 -->
+  <div id="touch">
+    <div class="tbtn" id="t-left">◀</div>
+    <div class="tbtn" id="t-right">▶</div>
+    <div class="tbtn" id="t-up">▲</div>
+    <div class="tbtn" id="t-down2">▼</div>
+    <div class="tbtn" id="t-climb">上窗台</div>
+    <div class="tbtn" id="t-flap">扑翼冲刺</div>
+  </div>
+
+  <!-- 开始界面 -->
+  <div class="overlay" id="menu">
+    <div class="card">
+      <h1>珠颈斑鸠街区历险记</h1>
+      <div class="sub">轻量版 · 2D 横版躲避觅食</div>
+      <div class="rules">
+        🌾 <b>目标：</b>吃食物攒积分，总分超过 <b>1000</b> 分即可成长、飞向城市！<br>
+        🍚 <b>食物：</b>小米 1 分 · 玉米 2 分 · 花生米 3 分；窗台食物更多，路面较少。<br>
+        <span class="hawk">🦅 危险：</span>游隼会周期性巡逻俯冲，被抓住就要从头开始！<br>
+        🌳 <b>避险：</b>游隼来袭时，整只躲进小树林的树冠下即可安全（窗台不安全）。<br>
+        🎮 <b>操作：</b>← → 移动 ｜ ↑↓ 切换街道/人行道、上下窗台 ｜ 空格 扑翼冲刺 ｜ P 暂停
+      </div>
+      <button class="btn" id="startBtn">开始游戏</button>
+      <div class="best" id="bestMenu"></div>
+    </div>
+  </div>
+
+  <!-- 暂停界面 -->
+  <div class="overlay hidden" id="pauseOverlay">
+    <div class="card">
+      <h1 style="font-size:30px">游戏暂停</h1>
+      <div class="sub">休息一下，斑鸠还在等你</div>
+      <button class="btn" id="resumeBtn">继续游戏</button>
+      <button class="btn alt" id="restartPauseBtn">重新开始</button>
+    </div>
+  </div>
+
+  <!-- 失败界面 -->
+  <div class="overlay hidden" id="deadOverlay">
+    <div class="card">
+      <h2>被游隼吃掉了……</h2>
+      <div class="sub" id="deadScore"></div>
+      <button class="btn" id="restartBtn">重新开始</button>
+      <div class="sub" style="margin-top:14px;font-size:13px">提示：看到红色警报就往最近的树林跑，最后一瞬用空格冲刺也能躲开</div>
+      <div class="best" id="bestDead"></div>
+    </div>
+  </div>
+
+  <!-- 通关界面 -->
+  <div class="overlay hidden" id="winOverlay">
+    <div class="card">
+      <h2 style="color:#2f7d4f">成长为强大的珠颈斑鸠！</h2>
+      <div class="sub" id="winScore"></div>
+      <button class="btn" id="winBtn">再玩一次</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================================
+ * 《珠颈斑鸠躲避游隼》—— 单文件 HTML5 Canvas 游戏
+ * 分区：CONFIG / 输入 / 音效 / 地图数据 / 实体（斑鸠·游隼·食物）/ 食物生成器 /
+ *       游隼状态机 / 碰撞判定 / 场景渲染 / 角色绘制 / UI 状态机 / 主循环
+ *
+ * 【精灵图替换入口】
+ *   const SPRITES = { dove:null, falcon:null };
+ *   想换成自己画的精灵图时：
+ *     const img = new Image(); img.src = "dove.png"; img.onload = ()=>SPRITES.dove = img;
+ *   drawDove / drawFalcon 内部已预留 SPRITES.dove / SPRITES.falcon 分支，
+ *   填入图片后会自动改为 drawImage 渲染（当前为零素材矢量画法）。
+ * ===================================================================================== */
+
+/* ============================ ① CONFIG：所有可调数值 ============================ */
+const CONFIG = {
+  WIDTH:1280, HEIGHT:720,                 // 逻辑分辨率
+  WIN_SCORE:1000,                         // 通关积分
+
+  // —— 地形高度（斑鸠脚部所在 y）——
+  Y_SIDEWALK:560,                         // 人行道层
+  Y_STREET:648,                           // 车行道层
+
+  // —— 斑鸠 ——
+  DOVE_SPEED:265,                         // 平时移动速度 px/s
+  DASH_MULT:2.0,                          // 扑翼冲刺速度倍率
+  DASH_TIME:0.45,                         // 冲刺持续秒数
+  DASH_CD:1.2,                            // 冲刺冷却秒数
+  HOP_TIME:0.22,                          // 街道↔人行道小跳时长
+  FLY_TIME:0.55,                          // 上下窗台飞行时长
+  EAT_DIST:30,                            // 进食距离
+
+  // —— 食物 ——
+  FOOD_MAX:12,                            // 同屏食物上限
+  FOOD_LIFE:15,                           // 食物存活秒数
+  SILL_INTERVAL:0.75,                     // 窗台食物基础生成间隔（秒，主力来源）
+  GROUND_INTERVAL:2.4,                    // 路面食物基础生成间隔（秒，较少）
+  // 三档难度：分值权重（小米/玉米/花生）随积分降低高级食物占比，rate 为刷新率系数
+  TIERS:[
+    { min:0,   w:[6.0, 3.0, 1.0], rate:1.00 },
+    { min:300, w:[7.0, 2.5, 0.5], rate:0.85 },
+    { min:700, w:[8.0, 1.7, 0.3], rate:0.7225 },
+  ],
+
+  // —— 游隼（中等偏下难度：预警充足、每轮只俯冲一次、冲刺可甩开）——
+  FIRST_DELAY:8.0,                        // 开局安全期
+  WARN_TIME:1.5,                          // 来袭预警时长
+  ENTER_TIME:0.55,                        // 入场时长
+  PATROL_TIME:1.9,                        // 滑翔巡逻时长
+  DIVE_TIME:1.15,                         // 一次俯冲最长持续
+  RECOVER_TIME:0.45,                      // 俯冲后拉升
+  EXIT_TIME:0.6,                          // 离场时长
+  NEXT_MIN:12, NEXT_MAX:16,               // 下一轮巡逻间隔 14±2 秒
+  PATROL_SPEED:300,                       // 巡逻速度
+  DIVE_SPEED:470,                         // 俯冲速度（略低于斑鸠冲刺 265*2=530）
+  DIVE_TURN:2.4,                          // 俯冲最大转向弧度/秒（有惯性，不能瞬瞄）
+  CATCH_DIST:34,                          // 隼爪与斑鸠身体的捕获距离
+
+  // —— 安全树林（树冠判定椭圆）——
+  TREE_RX:96, TREE_CY:548, TREE_RY:80,
+};
+
+/* ============================ ② 画布 / 通用工具 ============================ */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const W = CONFIG.WIDTH, H = CONFIG.HEIGHT;
+
+function resize(){
+  const s = Math.max(0.1, Math.min(window.innerWidth/W, window.innerHeight/H));
+  canvas.style.width  = (W*s)+"px";
+  canvas.style.height = (H*s)+"px";
+}
+window.addEventListener("resize", resize); resize();
+
+const rand  = (a,b)=>a+Math.random()*(b-a);
+const clamp = (v,a,b)=>v<a?a:(v>b?b:v);
+const lerp  = (a,b,t)=>a+(b-a)*t;
+const dist2 = (x1,y1,x2,y2)=>{const dx=x2-x1,dy=y2-y1;return dx*dx+dy*dy;};
+
+const SPRITES = { dove:null, falcon:null };   // ★ 精灵图替换入口（见文件头说明）
+
+/* ============================ ③ 输入（键盘 + 触屏） ============================ */
+const keys = { left:false, right:false };
+const keyAlias = { ArrowLeft:"left", KeyA:"left", ArrowRight:"right", KeyD:"right" };
+
+function upAction(){
+  if(state!=="playing" || dove.travel || dove.caught) return;
+  const sill = findClimbSill();
+  if(sill){ dove.startTravel(sill.y, CONFIG.FLY_TIME, {type:"sill", bi:sill.bi, si:sill.si}); sfx.flap(); }
+  else if(dove.lane.type==="ground" && dove.y===CONFIG.Y_STREET){
+    dove.startTravel(CONFIG.Y_SIDEWALK, CONFIG.HOP_TIME, {type:"ground", y:CONFIG.Y_SIDEWALK});
+  }
+}
+function downAction(){
+  if(state!=="playing" || dove.travel || dove.caught) return;
+  if(dove.lane.type==="sill"){
+    const b = BUILDINGS[dove.lane.bi];
+    if(dove.lane.si < b.sillYs.length-1){
+      const ny = b.sillYs[dove.lane.si+1];
+      dove.startTravel(ny, CONFIG.FLY_TIME*0.8, {type:"sill", bi:dove.lane.bi, si:dove.lane.si+1});
+    } else {
+      dove.startTravel(CONFIG.Y_SIDEWALK, CONFIG.FLY_TIME, {type:"ground", y:CONFIG.Y_SIDEWALK});
+    }
+  } else if(dove.lane.type==="ground" && dove.y===CONFIG.Y_SIDEWALK){
+    dove.startTravel(CONFIG.Y_STREET, CONFIG.HOP_TIME, {type:"ground", y:CONFIG.Y_STREET});
+  }
+}
+function dashAction(){
+  if(state!=="playing" || dove.travel || dove.caught) return;
+  // 空格优先级：身边有窗台先上去，否则地面扑翼冲刺
+  const sill = findClimbSill();
+  if(sill){ dove.startTravel(sill.y, CONFIG.FLY_TIME, {type:"sill", bi:sill.bi, si:sill.si}); sfx.flap(); return; }
+  dove.tryDash();
+}
+
+window.addEventListener("keydown", e=>{
+  if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space"].includes(e.code)) e.preventDefault();
+  if(keyAlias[e.code]){ keys[keyAlias[e.code]]=true; return; }
+  if(e.repeat) return;
+  if(e.code==="ArrowUp"||e.code==="KeyW") upAction();
+  if(e.code==="ArrowDown"||e.code==="KeyS") downAction();
+  if(e.code==="Space") dashAction();
+  if(e.code==="KeyP"||e.code==="Escape") togglePause();
+  if(e.code==="KeyM") toggleMute();
+  if(e.code==="KeyR" && state==="dead") restart();
+  if(e.code==="Enter" && (state==="menu")) startGame();
+});
+window.addEventListener("keyup", e=>{ if(keyAlias[e.code]) keys[keyAlias[e.code]]=false; });
+
+// 触屏按钮
+if(window.matchMedia && matchMedia("(pointer:coarse)").matches) document.body.classList.add("touch");
+function bindHold(id, on, off){
+  const el=document.getElementById(id);
+  el.addEventListener("pointerdown",e=>{e.preventDefault();on();});
+  el.addEventListener("pointerup",  e=>{e.preventDefault();off&&off();});
+  el.addEventListener("pointerleave",()=>{off&&off();});
+  el.addEventListener("pointercancel",()=>{off&&off();});
+}
+bindHold("t-left",  ()=>keys.left=true,  ()=>keys.left=false);
+bindHold("t-right", ()=>keys.right=true, ()=>keys.right=false);
+document.getElementById("t-up").addEventListener("pointerdown",   e=>{e.preventDefault();upAction();});
+document.getElementById("t-down2").addEventListener("pointerdown",e=>{e.preventDefault();downAction();});
+document.getElementById("t-climb").addEventListener("pointerdown",e=>{e.preventDefault();upAction();});
+document.getElementById("t-flap").addEventListener("pointerdown", e=>{e.preventDefault();dashAction();});
+
+/* ============================ ④ 音效（WebAudio 程序化合成，无外部文件） ============================ */
+const sfx = (()=>{
+  let ac=null, muted=false;
+  function ensure(){
+    if(!ac){ try{ ac = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ ac=null; } }
+    if(ac && ac.state==="suspended") ac.resume();
+    return ac;
+  }
+  function tone(freq0,freq1,dur,type="sine",vol=.15,when=0){
+    const a=ensure(); if(!a||muted) return;
+    const t=a.currentTime+when, o=a.createOscillator(), g=a.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq0,t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(30,freq1),t+dur);
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g).connect(a.destination); o.start(t); o.stop(t+dur+.02);
+  }
+  function noise(dur,freq,vol,when=0){
+    const a=ensure(); if(!a||muted) return;
+    const t=a.currentTime+when, n=Math.floor(a.sampleRate*dur), buf=a.createBuffer(1,n,a.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const src=a.createBufferSource(); src.buffer=buf;
+    const f=a.createBiquadFilter(); f.type="bandpass"; f.frequency.value=freq; f.Q.value=.8;
+    const g=a.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    src.connect(f).connect(g).connect(a.destination); src.start(t);
+  }
+  return {
+    unlock(){ ensure(); },
+    eat(type){ const f=[720,560,440][type]||600; tone(f,f*1.4,.12,"triangle",.18); },
+    flap(){ noise(.14,500,.12); },
+    alarm(){ tone(880,880,.12,"square",.08,0); tone(880,880,.12,"square",.08,.22); },
+    screech(){ tone(1700,820,.55,"sawtooth",.07); tone(1300,600,.5,"sawtooth",.05,.05); },
+    win(){ [523,659,784,1047].forEach((f,i)=>tone(f,f,.18,"triangle",.16,i*.15)); },
+    fail(){ [392,330,262,196].forEach((f,i)=>tone(f,f*.94,.25,"sawtooth",.1,i*.16)); },
+    isMuted(){ return muted; },
+    toggle(){ muted=!muted; return muted; },
+  };
+})();
+function toggleMute(){
+  const m=sfx.toggle();
+  document.getElementById("muteBtn").textContent = m?"🔇":"🔊";
+}
+document.getElementById("muteBtn").addEventListener("click", toggleMute);
+
+/* ============================ ⑤ 地图数据：居民楼 / 窗台 / 树林 ============================ */
+const BUILDINGS = [
+  { x:30,  w:300, top:118, color:"#e9dcc9", win:"#8fb6c9", sillYs:[352,462] },
+  { x:490, w:290, top:150, color:"#ddd6c6", win:"#9bbccb", sillYs:[352,462] },
+  { x:940, w:310, top:96,  color:"#e6d5c4", win:"#8fb6c9", sillYs:[352,462] },
+];
+// 窗台 slab 的左右边界
+function sillRange(bi){ const b=BUILDINGS[bi]; return {x0:b.x+38, x1:b.x+b.w-38}; }
+// 三处小树林（在街道边缘与建筑间隙处，保证任意位置都能快速跑进树冠）
+const TREES = [ {x:415}, {x:862}, {x:1238} ];
+
+// 判断斑鸠当前能否向上飞到窗台：x 必须在某栋楼的窗台范围内，取头顶最近的那个窗台
+function findClimbSill(){
+  for(let bi=0; bi<BUILDINGS.length; bi++){
+    const b=BUILDINGS[bi], r=sillRange(bi);
+    if(dove.x>=r.x0 && dove.x<=r.x1){
+      for(let si=b.sillYs.length-1; si>=0; si--){
+        if(b.sillYs[si] < dove.y-40) return {bi, si, y:b.sillYs[si]};
+      }
+    }
+  }
+  return null;
+}
+// 树冠安全判定：斑鸠在人行道层且身体完全进入树冠椭圆
+function isInTree(d){
+  if(d.travel || d.caught) return false;
+  if(d.lane.type!=="ground" || d.y!==CONFIG.Y_SIDEWALK) return false;
+  for(const t of TREES){
+    const nx=(d.x-t.x)/CONFIG.TREE_RX, ny=((d.y-18)-CONFIG.TREE_CY)/CONFIG.TREE_RY;
+    if(nx*nx+ny*ny < 0.92) return true;   // 留一点边距，要求“完全进入”
+  }
+  return false;
+}
+
+/* ============================ ⑥ 食物实体 + 生成器 ============================ */
+const FOOD_DEF = [
+  { name:"小米",   score:1, r:4.5 },
+  { name:"玉米",   score:2, r:7   },
+  { name:"花生米", score:3, r:7.5 },
+];
+let foods=[], sillTimer=1, groundTimer=2.5;
+
+function tierOf(score){ let t=CONFIG.TIERS[0]; for(const c of CONFIG.TIERS) if(score>=c.min) t=c; return t; }
+function pickType(score){
+  const w=tierOf(score).w, sum=w.reduce((a,b)=>a+b,0);
+  let r=Math.random()*sum;
+  for(let i=0;i<w.length;i++){ r-=w[i]; if(r<=0) return i; }
+  return 0;
+}
+function spawnFood(){
+  const tier=tierOf(score);
+  // 窗台食物（高频主力）
+  sillTimer-=1/60;
+  if(sillTimer<=0){
+    sillTimer = CONFIG.SILL_INTERVAL/tier.rate*rand(.65,1.35);
+    if(foods.length<CONFIG.FOOD_MAX){
+      const bi=(Math.random()*BUILDINGS.length)|0, si=(Math.random()*2)|0;
+      const r=sillRange(bi);
+      foods.push({type:pickType(score), x:rand(r.x0+14,r.x1-14), y:BUILDINGS[bi].sillYs[si]-12,
+        loc:{type:"sill",bi,si}, age:0, seed:Math.random()*9});
+    }
+  }
+  // 路面食物（低频）
+  groundTimer-=1/60;
+  if(groundTimer<=0){
+    groundTimer = CONFIG.GROUND_INTERVAL/tier.rate*rand(.7,1.4);
+    if(foods.length<CONFIG.FOOD_MAX){
+      const onStreet = Math.random()<.45;
+      const y = (onStreet?CONFIG.Y_STREET:CONFIG.Y_SIDEWALK)-10;
+      foods.push({type:pickType(score), x:rand(40,W-40), y,
+        loc:{type:"ground", y:onStreet?CONFIG.Y_STREET:CONFIG.Y_SIDEWALK}, age:0, seed:Math.random()*9});
+    }
+  }
+}
+
+/* ============================ ⑦ 珠颈斑鸠（主角，全场唯一） ============================ */
+const dove = {
+  x:120, y:CONFIG.Y_SIDEWALK, face:1, vx:0,
+  lane:{type:"ground", y:CONFIG.Y_SIDEWALK},
+  travel:null, dashT:0, dashCd:0, walkT:0, wingT:0,
+  safe:false, caught:false, grown:false,
+  reset(){
+    this.x=120; this.y=CONFIG.Y_SIDEWALK; this.face=1; this.vx=0;
+    this.lane={type:"ground",y:CONFIG.Y_SIDEWALK};
+    this.travel=null; this.dashT=0; this.dashCd=0; this.walkT=0; this.wingT=0;
+    this.safe=false; this.caught=false; this.grown=false;
+  },
+  startTravel(toY,dur,lane){
+    this.travel={fromY:this.y,toY,t:0,dur,lane};
+    this.wingT=0;
+  },
+  tryDash(){
+    if(this.dashCd>0 || this.dashT>0) return;
+    this.dashT=CONFIG.DASH_TIME; this.dashCd=CONFIG.DASH_CD; sfx.flap();
+    for(let i=0;i<6;i++) particles.push({x:this.x-this.face*14,y:this.y-20+rand(-8,8),
+      vx:-this.face*rand(60,160),vy:rand(-30,30),life:.4,max:.4,c:"rgba(255,255,255,.7)",r:2});
+  },
+  update(dt){
+    if(this.caught) return;
+    // 水平移动
+    let dir=0; if(keys.left) dir-=1; if(keys.right) dir+=1;
+    const sp = CONFIG.DOVE_SPEED*(this.dashT>0?CONFIG.DASH_MULT:1);
+    this.vx = dir*sp;
+    this.x = clamp(this.x+this.vx*dt, 26, W-26);
+    if(dir!==0) this.face=dir;
+
+    // 冷却 / 冲刺计时
+    if(this.dashT>0) this.dashT-=dt;
+    if(this.dashCd>0) this.dashCd-=dt;
+    const moving = dir!==0;
+    if(moving && !this.travel) this.walkT+=dt*10;
+    if(this.travel || this.dashT>0) this.wingT+=dt;
+
+    // 上下层移动（带抛物线弧度的飞/跳）
+    if(this.travel){
+      const tr=this.travel; tr.t+=dt;
+      const k=clamp(tr.t/tr.dur,0,1);
+      this.y=lerp(tr.fromY,tr.toY,k);
+      this.y -= Math.sin(k*Math.PI)*46;
+      if(k>=1){ this.y=tr.toY; this.lane=tr.lane; this.travel=null; }
+    }
+    this.safe=isInTree(this);
+  }
+};
+
+/* ============================ ⑧ 游隼（天敌，全场唯一）状态机 ============================
+ * away 休整 → warn 预警 → enter 入场 → patrol 滑翔巡航 → dive 俯冲一次
+ *      → recover 拉升 → exit 离场 → away（间隔 14±2 秒）
+ * 斑鸠在树冠内时俯冲无法捕获；caught 为抓捕成功演出。 */
+const falcon = {
+  state:"away", t:0, timer:CONFIG.FIRST_DELAY,
+  x:-100, y:180, vx:0, vy:0, face:1,
+  didDive:false, diveFrom:1, aimX:0, aimY:0, shadowX:0,
+  reset(){
+    this.state="away"; this.t=0; this.timer=CONFIG.FIRST_DELAY;
+    this.x=-100; this.y=180; this.vx=0; this.vy=0; this.didDive=false;
+  },
+  startVisit(){
+    this.diveFrom = Math.random()<.5?1:-1;
+    this.face = this.diveFrom;
+    this.x = this.diveFrom>0 ? -90 : W+90;
+    this.y = rand(150,260);
+    this.shadowX = this.x;
+    this.setState("warn");
+    sfx.alarm();
+  },
+  setState(s){ this.state=s; this.t=0; },
+  update(dt){
+    this.t+=dt;
+    const C=CONFIG;
+    switch(this.state){
+      case "away":
+        this.timer-=dt;
+        if(this.timer<=0) this.startVisit();
+        break;
+
+      case "warn": {
+        // 地面移动的天空阴影 + 音效预警，隼本隼还在画面外
+        const target = clamp(dove.x + rand(-40,40), 120, W-120);
+        this.shadowX = lerp(this.shadowX, this.diveFrom>0? target-260 : target+260, .08);
+        if(this.t>C.WARN_TIME){
+          this.setState("enter"); sfx.screech();
+        } break;
+      }
+      case "enter": {
+        const tx = this.diveFrom>0? 160 : W-160, ty=rand(200,300);
+        this.vx = lerp(this.vx,(tx-this.x)*2.4,dt*3);
+        this.vy = lerp(this.vy,(ty-this.y)*2.4,dt*3);
+        this.x+=this.vx*dt; this.y+=this.vy*dt; this.face=this.vx>=0?1:-1;
+        if(this.t>C.ENTER_TIME){ this.vx=this.diveFrom*C.PATROL_SPEED; this.setState("patrol"); }
+        break;
+      }
+      case "patrol": {
+        // 在斑鸠上方滑翔；惯性转向；对齐一次即俯冲，巡逻末尾强制俯冲（保证每轮一次）
+        const wantX = dove.x;
+        const wantY = clamp(dove.y-235, 170, 320);
+        const ax = clamp((wantX-this.x)*1.6, -420, 420);
+        const ay = clamp((wantY-this.y)*2.2, -300, 300);
+        this.vx=clamp(this.vx+ax*dt,-C.PATROL_SPEED,C.PATROL_SPEED);
+        this.vy=clamp(this.vy+ay*dt,-220,220);
+        this.x+=this.vx*dt; this.y+=this.vy*dt; this.face=this.vx>=0?1:-1;
+
+        const aligned = Math.abs(this.x-dove.x)<240 && this.y<dove.y-120;
+        if(!this.didDive && (aligned || this.t>C.PATROL_TIME-0.25)) this.beginDive();
+        if(this.t>C.PATROL_TIME){ if(!this.didDive) this.beginDive(); else this.setState("exit"); }
+        break;
+      }
+      case "dive": {
+        // 锁定提前量目标，转向角速度受限（不能瞬瞄）
+        const desired = Math.atan2(this.aimY-this.y, this.aimX-this.x);
+        let cur = Math.atan2(this.vy,this.vx);
+        let diff = ((desired-cur+Math.PI*3)%(Math.PI*2))-Math.PI;
+        const maxTurn=C.DIVE_TURN*dt;
+        diff=clamp(diff,-maxTurn,maxTurn);
+        cur+=diff;
+        const sp=clamp(Math.hypot(this.vx,this.vy)+900*dt, 260, C.DIVE_SPEED);
+        this.vx=Math.cos(cur)*sp; this.vy=Math.sin(cur)*sp;
+        this.x+=this.vx*dt; this.y+=this.vy*dt; this.face=this.vx>=0?1:-1;
+
+        // 抓捕判定（树冠内绝对免疫）
+        const talonX=this.x+this.face*18, talonY=this.y+12;
+        if(!dove.safe && !dove.travel &&
+           dist2(talonX,talonY,dove.x,dove.y-20) < C.CATCH_DIST*C.CATCH_DIST){
+          this.catchDove(); return;
+        }
+        const passed = dist2(this.x,this.y,this.aimX,this.aimY) < 30*30;
+        if(this.t>C.DIVE_TIME || passed){ this.didDive=true; this.setState("recover"); if(!dove.caught) sfx.screech(); }
+        break;
+      }
+      case "recover":
+        this.vy=lerp(this.vy,-180,dt*4);
+        this.vx=lerp(this.vx,this.face*260,dt*3);
+        this.x+=this.vx*dt; this.y+=this.vy*dt;
+        if(this.t>C.RECOVER_TIME) this.setState("exit");
+        break;
+      case "exit": {
+        this.vy=lerp(this.vy,-40,dt*2);
+        this.x+=this.vx*dt; this.y+=this.vy*dt;
+        if(this.t>C.EXIT_TIME || this.x<-120 || this.x>W+120){
+          this.setState("away");
+          this.timer=rand(C.NEXT_MIN,C.NEXT_MAX);
+          this.x=this.face>0?-100:W+100;
+        } break;
+      }
+      case "caught":
+        // 抓到后的升空演出
+        this.x+=this.face*40*dt; this.y-=130*dt;
+        if(this.t>.9){ onDoveCaught(); }
+        break;
+    }
+  },
+  beginDive(){
+    this.didDive=true; this.setState("dive");
+    // 提前量预判（0.42 秒后斑鸠位置），俯冲开始后不再更新目标
+    this.aimX=clamp(dove.x+dove.vx*.42,20,W-20);
+    this.aimY=dove.y-20;
+    sfx.screech();
+  },
+  catchDove(){
+    dove.caught=true; this.setState("caught");
+  }
+};
+
+/* ============================ ⑨ 粒子 / 飘字 ============================ */
+let particles=[];
+function popScore(x,y,txt){ particles.push({text:txt,x,y,vy:-55,life:1,max:1}); }
+
+/* ============================ ⑩ 游戏状态机 ============================ */
+let state="menu";   // menu | playing | paused | dying | dead | win
+let score=0, best=+(localStorage.getItem("dove_falcon_best")||0);
+let deathT=0, winT=0;
+
+const $=id=>document.getElementById(id);
+$("bestMenu").textContent = best? `历史最高分：${best}`:"";
+$("startBtn").onclick=startGame;
+$("restartBtn").onclick=restart;
+$("winBtn").onclick=restart;
+$("resumeBtn").onclick=()=>togglePause(false);
+$("restartPauseBtn").onclick=()=>{ $("pauseOverlay").classList.add("hidden"); restart(); };
+
+function startGame(){
+  sfx.unlock();
+  $("menu").classList.add("hidden");
+  $("deadOverlay").classList.add("hidden");
+  $("winOverlay").classList.add("hidden");
+  resetWorld();
+  state="playing";
+}
+function restart(){ startGame(); }
+function togglePause(force){
+  if(state==="playing" && force!==false){ state="paused"; $("pauseOverlay").classList.remove("hidden"); }
+  else if(state==="paused" && force!==true){ state="playing"; $("pauseOverlay").classList.add("hidden"); }
+}
+function resetWorld(){
+  score=0; foods=[]; particles=[]; sillTimer=.8; groundTimer=2;
+  dove.reset(); falcon.reset(); deathT=0; winT=0;
+}
+function onDoveCaught(){
+  state="dead";
+  sfx.fail();
+  best=Math.max(best,score); localStorage.setItem("dove_falcon_best",best);
+  $("deadScore").textContent=`本局积分：${score} / ${CONFIG.WIN_SCORE}`;
+  $("bestDead").textContent=`历史最高分：${best}`;
+  $("deadOverlay").classList.remove("hidden");
+}
+function triggerWin(){
+  state="win"; winT=0; dove.grown=true;
+  best=Math.max(best,score); localStorage.setItem("dove_falcon_best",best);
+  sfx.win();
+}
+
+/* ============================ ⑪ 逻辑更新 ============================ */
+function update(dt){
+  // 云始终飘动
+  for(const c of clouds){ c.x-=c.s*dt; if(c.x<-160) c.x=W+160; }
+  if(state==="playing"){
+    dove.update(dt);
+    falcon.update(dt);
+    spawnFood();
+
+    // 食物老化 & 进食
+    for(let i=foods.length-1;i>=0;i--){
+      const f=foods[i]; f.age+=dt;
+      if(f.age>CONFIG.FOOD_LIFE){ foods.splice(i,1); continue; }
+      let sameLayer=false;
+      if(!dove.travel){
+        if(f.loc.type==="sill" && dove.lane.type==="sill" &&
+           dove.lane.bi===f.loc.bi && dove.lane.si===f.loc.si) sameLayer=true;
+        if(f.loc.type==="ground" && dove.lane.type==="ground" && dove.lane.y===f.loc.y) sameLayer=true;
+      }
+      if(sameLayer && dist2(dove.x,dove.y-12,f.x,f.y)<CONFIG.EAT_DIST*CONFIG.EAT_DIST){
+        const def=FOOD_DEF[f.type]; score+=def.score;
+        sfx.eat(f.type);
+        popScore(f.x,f.y-18,"+"+def.score);
+        for(let p=0;p<7;p++) particles.push({x:f.x,y:f.y,vx:rand(-70,70),vy:rand(-110,-20),
+          life:.5,max:.5,c:f.type===0?"#f5d76e":(f.type===1?"#f4a02c":"#d98b63"),r:rand(2,3.5)});
+        foods.splice(i,1);
+        if(score>=CONFIG.WIN_SCORE){ triggerWin(); return; }
+      }
+    }
+    // 粒子
+    for(let i=particles.length-1;i>=0;i--){
+      const p=particles[i]; p.life-=dt;
+      p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=260*dt;
+      if(p.life<=0) particles.splice(i,1);
+    }
+  } else if(state==="win"){
+    winT+=dt;
+    // 斑鸠自动展翅飞向城市的演出轨迹
+    dove.x = W*0.5 + Math.sin(winT*1.6)*180;
+    dove.y = 360 - Math.min(winT*.5,1)*140 + Math.sin(winT*6)*14;
+    dove.face = Math.cos(winT*1.6)>=0?1:-1;
+    dove.wingT+=dt;
+    if(winT>2.2 && $("winOverlay").classList.contains("hidden")){
+      $("winScore").textContent=`最终积分：${score}`;
+      $("winOverlay").classList.remove("hidden");
+    }
+  }
+}
+
+/* ============================ ⑫ 场景渲染 ============================ */
+const clouds=[{x:180,y:90,s:14,r:34},{x:620,y:60,s:10,r:42},{x:1000,y:120,s:18,r:30}];
+
+function drawScene(){
+  // 天空（白天暖色，通关时变黄昏）
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  if(state==="win"){ sky.addColorStop(0,"#f6b06b"); sky.addColorStop(.6,"#f7d08a"); sky.addColorStop(1,"#fdecc8"); }
+  else { sky.addColorStop(0,"#aee0f5"); sky.addColorStop(.65,"#d8eef7"); sky.addColorStop(1,"#f3e9d6"); }
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+
+  // 太阳
+  ctx.fillStyle="rgba(255,236,170,.9)"; ctx.beginPath(); ctx.arc(1120,90,42,0,7); ctx.fill();
+
+  // 云
+  ctx.fillStyle="rgba(255,255,255,.85)";
+  for(const c of clouds){
+    ctx.beginPath();
+    ctx.arc(c.x,c.y,c.r,0,7); ctx.arc(c.x+c.r*.9,c.y+8,c.r*.7,0,7); ctx.arc(c.x-c.r*.9,c.y+8,c.r*.65,0,7);
+    ctx.fill();
+  }
+
+  if(state==="win"){ drawCitySkyline(); drawGround(true); return; }
+
+  // 远景居民楼
+  for(const b of BUILDINGS) drawBuilding(b);
+
+  drawGround(false);
+
+  // 树干（画在实体之前，树冠稍后半透明盖在斑鸠上面，表示“躲进树叶里”）
+  for(const t of TREES) drawTreeTrunk(t);
+}
+function drawGround(winMode){
+  // 人行道
+  ctx.fillStyle="#cfc7bb"; ctx.fillRect(0,CONFIG.Y_SIDEWALK-12,W,CONFIG.Y_STREET-CONFIG.Y_SIDEWALK+6);
+  ctx.fillStyle="rgba(255,255,255,.35)";
+  for(let x=20;x<W;x+=64) ctx.fillRect(x,CONFIG.Y_SIDEWALK+18,30,4);
+  // 路缘石
+  ctx.fillStyle="#e7e0d2"; ctx.fillRect(0,CONFIG.Y_STREET-8,W,10);
+  // 车行道
+  ctx.fillStyle="#5d646b"; ctx.fillRect(0,CONFIG.Y_STREET+2,W,H-CONFIG.Y_STREET);
+  ctx.fillStyle="rgba(255,235,150,.85)";
+  for(let x=20;x<W;x+=90) ctx.fillRect(x,CONFIG.Y_STREET+38,46,5);
+  // 楼前小花坛点缀
+  if(!winMode){
+    ctx.fillStyle="#7fae6a";
+    for(const x of [380,820,1180]){ ctx.beginPath(); ctx.ellipse(x,CONFIG.Y_SIDEWALK-2,26,10,0,0,7); ctx.fill(); }
+  }
+}
+function drawBuilding(b){
+  // 楼体
+  ctx.fillStyle=b.color;
+  ctx.fillRect(b.x,b.top,b.w,CONFIG.Y_SIDEWALK-8-b.top);
+  ctx.fillStyle="rgba(0,0,0,.08)";
+  ctx.fillRect(b.x+b.w-14,b.top,14,CONFIG.Y_SIDEWALK-8-b.top);
+  // 窗户 + 窗台
+  const cols=Math.floor(b.w/62);
+  for(let r=0;r<2;r++){
+    const wy=b.sillYs[r]-64;
+    for(let c=0;c<cols;c++){
+      const wx=b.x+34+c*62;
+      ctx.fillStyle=b.win; ctx.fillRect(wx,wy,34,46);
+      ctx.fillStyle="rgba(255,255,255,.35)"; ctx.fillRect(wx+4,wy+4,12,14);
+      ctx.fillStyle="#8a8378"; // 窗台 slab
+      ctx.fillRect(wx-8,b.sillYs[r],50,9);
+      ctx.fillStyle="rgba(0,0,0,.12)"; ctx.fillRect(wx-8,b.sillYs[r]+9,50,3);
+    }
+  }
+}
+function drawCitySkyline(){
+  // 通关远景城市天际线
+  ctx.fillStyle="#7a5b78";
+  let x=0;
+  const heights=[260,340,220,300,380,250,320,230,300,360,240,290,210];
+  for(const h of heights){
+    const ww=96;
+    ctx.fillRect(x,560-h,ww-10,h);
+    ctx.fillStyle="rgba(255,230,150,.7)";
+    for(let wy=560-h+24;wy<540;wy+=34) for(let wx=x+12;wx<x+ww-20;wx+=26)
+      if(Math.random()<.5) ctx.fillRect(wx,wy,12,16);
+    ctx.fillStyle="#7a5b78"; x+=ww;
+  }
+}
+function drawTreeTrunk(t){
+  ctx.fillStyle="#7a5a3c";
+  ctx.fillRect(t.x-9,CONFIG.Y_SIDEWALK-66,18,66);
+}
+function drawTreeCanopies(){
+  for(const t of TREES){
+    const glow = dove.safe && Math.abs(dove.x-t.x)<CONFIG.TREE_RX;
+    // 安全区柔光描边
+    ctx.save();
+    ctx.strokeStyle = glow ? "rgba(120,255,160,.95)" : "rgba(120,200,120,.5)";
+    ctx.lineWidth = glow ? 4+Math.sin(performance.now()/120)*1.5 : 2;
+    ctx.setLineDash(glow?[]:[8,8]);
+    ctx.beginPath(); ctx.ellipse(t.x,CONFIG.TREE_CY,CONFIG.TREE_RX,CONFIG.TREE_RY,0,0,7); ctx.stroke();
+    ctx.restore();
+    // 半透明树冠（斑鸠在下面仍可见）
+    ctx.fillStyle="rgba(78,139,74,.78)";
+    const blobs=[[0,-28,54],[-44,-2,40],[44,-2,40],[0,16,46],[-24,-44,36],[26,-46,34]];
+    for(const [dx,dy,r] of blobs){ ctx.beginPath(); ctx.arc(t.x+dx,CONFIG.TREE_CY+dy,r,0,7); ctx.fill(); }
+    ctx.fillStyle="rgba(120,180,100,.55)";
+    for(const [dx,dy,r] of [[-20,-30,26],[20,-10,24],[0,4,26]]){ ctx.beginPath(); ctx.arc(t.x+dx,CONFIG.TREE_CY+dy,r,0,7); ctx.fill(); }
+    // 基部灌木丛
+    ctx.fillStyle="rgba(70,125,66,.9)";
+    ctx.beginPath(); ctx.arc(t.x-38,CONFIG.Y_SIDEWALK-4,26,0,7); ctx.arc(t.x+38,CONFIG.Y_SIDEWALK-4,26,0,7); ctx.fill();
+  }
+}
+
+/* ============================ ⑬ 角色矢量绘制 ============================ */
+function drawDove(x,y,opt={}){
+  if(SPRITES.dove){ // ★ 精灵图替换后自动走这里
+    ctx.save(); ctx.translate(x,y-20); ctx.scale(opt.face||1,1);
+    const sc=opt.grown?1.15:1; ctx.scale(sc,sc);
+    ctx.drawImage(SPRITES.dove,-30,-34,60,60); ctx.restore(); return;
+  }
+  const t=performance.now()/1000;
+  const moving=opt.moving, flying=opt.flying, safe=opt.safe, grown=opt.grown, face=opt.face||1;
+  const sc = grown?1.18:1;
+  const bob = moving? Math.sin(dove.walkT)*1.6 : Math.sin(t*2)*.8;
+  ctx.save(); ctx.translate(x,y+bob); ctx.scale(face*sc,sc);
+
+  // 影子
+  ctx.fillStyle="rgba(0,0,0,.18)"; ctx.beginPath(); ctx.ellipse(0,2-bob,20,5,0,0,7); ctx.fill();
+
+  // 腿（跑动交替）
+  ctx.strokeStyle="#d98c8b"; ctx.lineWidth=3; ctx.lineCap="round";
+  const legSwing = moving? Math.sin(dove.walkT)*5 : 0;
+  ctx.beginPath();
+  ctx.moveTo(-4,-10); ctx.lineTo(-4+legSwing,0);
+  ctx.moveTo(5,-10); ctx.lineTo(5-legSwing,0);
+  ctx.stroke();
+  ctx.strokeStyle="#c97b7a"; ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.moveTo(-4+legSwing,0); ctx.lineTo(-9+legSwing,0); ctx.moveTo(5-legSwing,0); ctx.lineTo(10-legSwing,0); ctx.stroke();
+
+  // 长尾巴（外侧尾羽末端白色）
+  ctx.fillStyle=grown?"#b98c84":"#ad847d";
+  ctx.beginPath(); ctx.moveTo(-14,-26); ctx.lineTo(-48,-24); ctx.lineTo(-48,-12); ctx.lineTo(-12,-14); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="#f4ece8"; ctx.beginPath(); ctx.moveTo(-48,-24); ctx.lineTo(-40,-23); ctx.lineTo(-40,-13); ctx.lineTo(-48,-12); ctx.closePath(); ctx.fill();
+
+  // 身体（粉褐葡萄棕）
+  ctx.fillStyle=grown?"#d3a198":"#c79d96";
+  ctx.beginPath(); ctx.ellipse(-2,-22,20,16.5,-.05,0,7); ctx.fill();
+  ctx.fillStyle=grown?"#ecd2cb":"#e2c6bf"; // 浅腹
+  ctx.beginPath(); ctx.ellipse(2,-17,13,9,.1,0,7); ctx.fill();
+
+  // 翅膀（飞行/冲刺时扇动）
+  const flap = flying? Math.sin(dove.wingT*22)*.9 : Math.sin(t*2)*.08;
+  ctx.save(); ctx.translate(-4,-26); ctx.rotate(-.25-flap);
+  ctx.fillStyle=grown?"#a9807a":"#a37d77";
+  ctx.beginPath(); ctx.ellipse(-6,-2,15,7,.15,0,7); ctx.fill();
+  ctx.restore();
+
+  // 头颈（灰色）
+  ctx.fillStyle="#9aa3ad";
+  ctx.beginPath(); ctx.ellipse(8,-30,9,11,.2,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(14,-37,10.5,0,7); ctx.fill();
+
+  // 后颈黑色珍珠颈斑
+  ctx.fillStyle="#2c2622";
+  ctx.beginPath(); ctx.arc(7,-31,8.5,.4,4.9); ctx.lineTo(12,-24); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="#f6f1ea";
+  [[5,-35],[10,-34],[3,-29],[9,-28],[13,-31]].forEach(p=>{ ctx.beginPath(); ctx.arc(p[0],p[1],1.7,0,7); ctx.fill(); });
+
+  // 橙红色虹膜眼睛
+  ctx.fillStyle="#e0562f"; ctx.beginPath(); ctx.arc(18,-39,2.8,0,7); ctx.fill();
+  ctx.fillStyle="#241a16"; ctx.beginPath(); ctx.arc(18.7,-39,1.4,0,7); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.beginPath(); ctx.arc(19.2,-39.6,.6,0,7); ctx.fill();
+  // 细小深灰喙
+  ctx.fillStyle="#5a5148"; ctx.beginPath(); ctx.moveTo(23,-37); ctx.lineTo(30,-35); ctx.lineTo(23,-33); ctx.closePath(); ctx.fill();
+
+  ctx.restore();
+
+  // 安全提示
+  if(safe){
+    ctx.fillStyle="rgba(40,150,80,.9)";
+    ctx.font="bold 15px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("🌳 树林中 · 安全",x,y-62);
+  }
+}
+
+function drawFalcon(f){
+  if(SPRITES.falcon){ // ★ 精灵图替换后自动走这里
+    ctx.save(); ctx.translate(f.x,f.y); ctx.scale(f.face,1);
+    ctx.drawImage(SPRITES.falcon,-40,-28,80,56); ctx.restore(); return;
+  }
+  const t=performance.now()/1000;
+  const diving = f.state==="dive", caught=f.state==="caught";
+  const flap = Math.sin(t* (diving?30:7)) * (diving?.15:.5);
+  ctx.save(); ctx.translate(f.x,f.y); ctx.scale(f.face,1);
+
+  // 地面阴影
+  if(f.state!=="away"&&f.state!=="warn"){
+    ctx.fillStyle="rgba(0,0,0,.16)";
+    ctx.beginPath(); ctx.ellipse(0,CONFIG.Y_STREET-f.y-2,26,6,0,0,7); ctx.fill();
+  }
+
+  // 双翅：滑翔平展，俯冲后掠
+  ctx.fillStyle="#5d6d7a";
+  if(diving||caught){
+    const sweep=-1.05+flap*.12;
+    ctx.save(); ctx.rotate(sweep);
+    ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(-44,-10); ctx.lineTo(-8,6); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.save(); ctx.scale(-1,1); ctx.rotate(sweep);
+    ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(-44,-10); ctx.lineTo(-8,6); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }else{
+    ctx.save(); ctx.rotate(-.12-flap*.18);
+    ctx.beginPath(); ctx.moveTo(0,-2); ctx.lineTo(-52,-12); ctx.lineTo(-44,4); ctx.lineTo(-6,8); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.save(); ctx.scale(-1,1); ctx.rotate(-.12-flap*.18);
+    ctx.beginPath(); ctx.moveTo(0,-2); ctx.lineTo(-52,-12); ctx.lineTo(-44,4); ctx.lineTo(-6,8); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  // 尾羽
+  ctx.fillStyle="#52616e";
+  ctx.beginPath(); ctx.moveTo(-18,-4); ctx.lineTo(-34,-2); ctx.lineTo(-34,6); ctx.lineTo(-16,6); ctx.closePath(); ctx.fill();
+
+  // 流线身体：背石板蓝灰、腹白带粉并带深色横纹
+  ctx.fillStyle="#647481";
+  ctx.beginPath(); ctx.ellipse(0,0,23,10.5,.05,0,7); ctx.fill();
+  ctx.fillStyle="#eef0ee";
+  ctx.beginPath(); ctx.ellipse(4,4,15,6.5,.1,0,7); ctx.fill();
+  ctx.strokeStyle="rgba(122,102,96,.8)"; ctx.lineWidth=1.4;
+  for(let i=0;i<4;i++){ ctx.beginPath(); ctx.moveTo(-4+i*5,2+i%2); ctx.lineTo(-2+i*5,8); ctx.stroke(); }
+
+  // 黄色脚爪（俯冲/抓捕时前伸）
+  ctx.strokeStyle="#e8b23a"; ctx.lineWidth=2.6; ctx.lineCap="round";
+  const ty = diving||caught ? 8 : 9;
+  const tx = diving||caught ? 20 : 4;
+  ctx.beginPath(); ctx.moveTo(2,8); ctx.lineTo(tx-4,ty+4);
+  ctx.moveTo(7,8); ctx.lineTo(tx+3,ty+5); ctx.stroke();
+  ctx.strokeStyle="#2e2a24"; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(tx-4,ty+4); ctx.lineTo(tx-8,ty+7);
+  ctx.moveTo(tx+3,ty+5); ctx.lineTo(tx+8,ty+8); ctx.stroke();
+
+  // 黑色头盔（头顶到两颊）
+  ctx.fillStyle="#2e2f33";
+  ctx.beginPath(); ctx.arc(18,-7,10,Math.PI*.05,Math.PI*1.12); ctx.lineTo(20,2); ctx.lineTo(12,-2); ctx.closePath(); ctx.fill();
+  // 粗壮黑色髭纹
+  ctx.beginPath(); ctx.moveTo(24,-2); ctx.lineTo(31,7); ctx.lineTo(26,8); ctx.lineTo(20,1); ctx.closePath(); ctx.fill();
+  // 黄色眼圈 / 蜡膜
+  ctx.fillStyle="#e8b23a"; ctx.beginPath(); ctx.arc(20,-8,2.6,0,7); ctx.fill();
+  ctx.fillStyle="#1c1d20"; ctx.beginPath(); ctx.arc(20.4,-8,1.4,0,7); ctx.fill();
+  // 钩状喙：黄基灰钩
+  ctx.fillStyle="#e8b23a"; ctx.beginPath(); ctx.moveTo(26,-7); ctx.lineTo(31,-6); ctx.lineTo(26,-3); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="#4a4a4c"; ctx.beginPath(); ctx.moveTo(29,-6.5); ctx.quadraticCurveTo(35,-4,30,-1); ctx.lineTo(27,-4); ctx.closePath(); ctx.fill();
+
+  ctx.restore();
+}
+
+/* ============================ ⑭ 食物绘制 ============================ */
+function drawFood(f){
+  const def=FOOD_DEF[f.type];
+  const bob=Math.sin(f.age*4+f.seed)*2, sparkle=.55+.45*Math.sin(f.age*5+f.seed);
+  const x=f.x, y=f.y+bob;
+  ctx.save();
+  // 即将消失时闪烁
+  if(f.age>CONFIG.FOOD_LIFE-3) ctx.globalAlpha=.4+.6*Math.abs(Math.sin(f.age*8));
+  if(f.type===0){ // 小米
+    ctx.fillStyle="#f5c542"; ctx.beginPath(); ctx.arc(x,y,def.r,0,7); ctx.fill();
+    ctx.fillStyle="rgba(255,255,255,.7)"; ctx.beginPath(); ctx.arc(x-1.3,y-1.3,1.5,0,7); ctx.fill();
+  }else if(f.type===1){ // 玉米粒
+    ctx.fillStyle="#f4a02c"; ctx.beginPath(); ctx.ellipse(x,y,def.r,def.r*.72,.2,0,7); ctx.fill();
+    ctx.strokeStyle="rgba(180,90,20,.5)"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x-3,y-4); ctx.lineTo(x-3,y+4); ctx.moveTo(x+2,y-4.5); ctx.lineTo(x+2,y+4.5); ctx.stroke();
+    ctx.fillStyle=`rgba(255,240,190,${sparkle})`; ctx.beginPath(); ctx.arc(x-2,y-2,1.8,0,7); ctx.fill();
+  }else{ // 花生米（红皮衣）
+    ctx.fillStyle="#c9704f"; ctx.beginPath(); ctx.ellipse(x,y,def.r,def.r*.7,0,0,7); ctx.fill();
+    ctx.strokeStyle="rgba(120,50,30,.6)"; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.moveTo(x-5,y); ctx.quadraticCurveTo(x,y-3,x+5,y); ctx.stroke();
+    ctx.fillStyle=`rgba(255,220,190,${sparkle})`; ctx.beginPath(); ctx.arc(x-2.5,y-2,1.8,0,7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ============================ ⑮ HUD / 预警特效 ============================ */
+function drawWarningFX(){
+  const f=falcon;
+  if(f.state==="warn"){
+    // 红色闪烁警示框
+    const a=.25+.35*Math.abs(Math.sin(performance.now()/90));
+    ctx.strokeStyle=`rgba(220,60,40,${a})`; ctx.lineWidth=14;
+    ctx.strokeRect(7,7,W-14,H-14);
+    // 地面移动的隼影
+    ctx.fillStyle="rgba(40,40,50,.28)";
+    ctx.beginPath(); ctx.ellipse(f.shadowX,CONFIG.Y_STREET-4,60,12,0,0,7); ctx.fill();
+  }
+}
+function drawHUD(){
+  // 积分
+  ctx.fillStyle="rgba(30,40,50,.62)";
+  roundRect(14,12,300,72,12); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.font="bold 13px sans-serif"; ctx.textAlign="left";
+  ctx.fillText("积分",28,34);
+  ctx.font="bold 30px sans-serif"; ctx.fillText(score,28,66);
+  // 通关进度条
+  ctx.fillStyle="rgba(255,255,255,.25)"; roundRect(96,44,200,16,8); ctx.fill();
+  const k=clamp(score/CONFIG.WIN_SCORE,0,1);
+  const g=ctx.createLinearGradient(96,0,296,0); g.addColorStop(0,"#8fd14f"); g.addColorStop(1,"#3fae6a");
+  ctx.fillStyle=g; roundRect(96,44,200*k,16,8); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.font="11px sans-serif"; ctx.textAlign="center";
+  ctx.fillText(`${score} / ${CONFIG.WIN_SCORE}`,196,39);
+  // 冲刺冷却小条
+  ctx.textAlign="left"; ctx.font="11px sans-serif"; ctx.fillStyle="rgba(255,255,255,.85)";
+  ctx.fillText("扑翼冲刺(空格)",28,80);
+  ctx.fillStyle="rgba(255,255,255,.25)"; ctx.fillRect(130,71,70,6);
+  ctx.fillStyle="#e0a142";
+  ctx.fillRect(130,71,70*(dove.dashCd>0?1-dove.dashCd/CONFIG.DASH_CD:1),6);
+
+  // 预警横幅
+  if(falcon.state==="warn"){
+    ctx.fillStyle=`rgba(200,50,35,${.72+.2*Math.sin(performance.now()/100)})`;
+    ctx.font="bold 26px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("⚠ 游隼来袭！快躲进小树林 🌳",W/2,52);
+  }else if(["enter","patrol","dive","recover"].includes(falcon.state)){
+    ctx.fillStyle="rgba(150,40,30,.75)"; ctx.font="bold 20px sans-serif"; ctx.textAlign="center";
+    ctx.fillText(falcon.state==="dive"?"游隼俯冲中——闪开！":"游隼正在巡逻……",W/2,46);
+  }
+  // 操作提示（渐隐）
+  if(score<40 && state==="playing"){
+    ctx.fillStyle="rgba(60,60,60,.6)"; ctx.font="14px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("← → 移动 ｜ ↑ 上窗台/人行道 ｜ ↓ 下来 ｜ 空格扑翼冲刺 ｜ 游隼来了就钻进绿色树冠",W/2,H-18);
+  }
+}
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+/* ============================ ⑯ 总渲染 ============================ */
+function render(){
+  drawScene();
+
+  if(state!=="win"){
+    // 食物
+    for(const f of foods) drawFood(f);
+
+    // 斑鸠（被抓时藏进隼爪位置，不单独画）
+    if(!dove.caught && state!=="menu"){
+      drawDove(dove.x,dove.y,{face:dove.face,moving:Math.abs(dove.vx)>10&&!dove.travel,
+        flying:!!dove.travel||dove.dashT>0,safe:dove.safe,grown:dove.grown});
+    }
+    // 树冠盖在实体之上
+    drawTreeCanopies();
+
+    // 游隼
+    if(!["away"].includes(falcon.state)) drawFalcon(falcon);
+    else if(state==="menu") { /* 菜单时隼不出场 */ }
+
+    // 粒子 / 飘字
+    for(const p of particles){
+      ctx.globalAlpha=clamp(p.life/p.max,0,1);
+      if(p.text){ ctx.fillStyle="#3f7d4f"; ctx.font="bold 18px sans-serif"; ctx.textAlign="center"; ctx.fillText(p.text,p.x,p.y); }
+      else { ctx.fillStyle=p.c; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill(); }
+      ctx.globalAlpha=1;
+    }
+
+    drawWarningFX();
+    if(state==="playing"||state==="paused") drawHUD();
+  }else{
+    // 通关：斑鸠在城市前展翅高飞
+    drawTreeCanopies();
+    drawDove(dove.x,dove.y,{face:dove.face,flying:true,grown:true});
+    ctx.fillStyle="rgba(255,255,255,.9)"; ctx.font="bold 40px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("飞向城市！",W/2,150);
+  }
+}
+
+/* ============================ ⑰ 主循环（固定逻辑步长 + rAF） ============================ */
+let last=performance.now(), acc=0;
+const STEP=1/60;
+function loop(now){
+  requestAnimationFrame(loop);
+  let dt=(now-last)/1000; last=now;
+  dt=Math.min(dt,.1);
+  if(state==="playing"||state==="win"){
+    acc+=dt;
+    let n=0;
+    while(acc>=STEP && n<5){ update(STEP); acc-=STEP; n++; }
+  }else{
+    update(Math.min(dt,.1)); // 菜单/暂停/失败时仅维持云朵等环境动画
+  }
+  render();
+}
+resetWorld();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

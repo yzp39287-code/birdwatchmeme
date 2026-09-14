@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>珠颈斑鸠街区历险记·轻量版｜观鸟meme</title>
+  <meta name="description" content="珠颈斑鸠街区历险记的2D轻量版本，在街区觅食并躲避游隼。">
+  <link rel="icon" href="assets/birdwatch-logo.jpg"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="game-page.css">
+</head>
+<body class="game-page">
+  <header><a class="brand" href="index.html"><span class="logo"><img src="assets/birdwatch-logo.jpg" alt=""></span>观鸟<span>meme</span></a><div class="actions"><a class="ghost link-button" href="games.html">返回游戏盒子</a></div></header>
+  <main class="game-shell city-game-shell">
+    <section class="game-heading"><div><p class="eyebrow">🪶 2D 轻量版</p><h1>珠颈斑鸠街区历险记</h1><p>吃食物积累分数，游隼来袭时躲进树林。画面更简单，加载更快，低配置设备也能轻松游玩。</p></div><button id="fullscreenGame" class="primary" type="button">全屏游戏</button></section>
+    <div class="game-frame-wrap"><iframe id="gameFrame" class="game-frame" src="games/spotted-dove-lite/?v=20260914a" title="珠颈斑鸠街区历险记轻量版" allow="fullscreen" allowfullscreen></iframe></div>
+    <p class="game-tip">电脑：方向键或 WASD 移动，空格扑翼冲刺。手机：使用屏幕左右两侧的方向键、上窗台和扑翼按钮。</p>
+  </main>
+  <script>document.getElementById('fullscreenGame').addEventListener('click',()=>{const frame=document.getElementById('gameFrame');if(frame.requestFullscreen)frame.requestFullscreen();});</script>
+  <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"1e97f2c4a22e40c8a8d3b1c95b1ea1ed"}'></script>
+</body>
+</html>
