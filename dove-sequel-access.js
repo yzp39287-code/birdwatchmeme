@@ -9,7 +9,7 @@
   try{
     const {data:html,error}=await client.storage.from("private-games").download("dove-sequel.html");
     if(error)throw error;
-    const gameUrl=URL.createObjectURL(html);
+    const gameUrl=URL.createObjectURL(new Blob([html],{type:"text/html;charset=utf-8"}));
     frame.src=gameUrl;
     frame.classList.remove("hidden");
     gate.classList.add("hidden");
