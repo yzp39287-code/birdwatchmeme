@@ -7,10 +7,9 @@
   const session=data.session;
   if(!session||session.user.id!==cfg.adminUserId){message.textContent="游戏仍在制作中，完成后会正式开放。";return;}
   try{
-    const response=await fetch("/.netlify/functions/dove-sequel",{headers:{Authorization:`Bearer ${session.access_token}`}});
-    if(!response.ok)throw new Error(`HTTP ${response.status}`);
-    const html=await response.text();
-    const gameUrl=URL.createObjectURL(new Blob([html],{type:"text/html"}));
+    const {data:html,error}=await client.storage.from("private-games").download("dove-sequel.html");
+    if(error)throw error;
+    const gameUrl=URL.createObjectURL(html);
     frame.src=gameUrl;
     frame.classList.remove("hidden");
     gate.classList.add("hidden");
