@@ -1,0 +1,1944 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>乌鸫的生活 · The Life of a Blackbird</title>
+<link rel="icon" href="data:,"/>
+<!--
+  ============================================================
+  《乌鸫的生活》 The Life of a Blackbird
+  ------------------------------------------------------------
+  · 单文件 Three.js 游戏，浏览器直接打开即玩（需联网加载 CDN）
+  · 所有角色/道具模型在运行时程序化生成，并经由
+    GLTFExporter -> GLTFLoader 的 GLTF(GLB) 管线加载，
+    与外部 .glb 文件的接入方式完全一致，方便后续替换精细模型。
+  · 调试：浏览器控制台输入 GAME_DEBUG 查看并实时修改参数，
+    例如 GAME_DEBUG.pedestrianSpawnIntervalSec = 30
+  ============================================================
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0d1216;
+    font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;user-select:none}
+  canvas{display:block}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #bars{position:absolute;top:14px;left:14px;display:flex;flex-direction:column;gap:8px;
+    background:rgba(10,16,20,.55);padding:10px 12px;border-radius:10px;
+    backdrop-filter:blur(4px);min-width:262px}
+  .barRow{display:flex;align-items:center;gap:8px}
+  .label{width:52px;font-size:12px;color:#cfe3d8;white-space:nowrap}
+  .bar{flex:1;height:12px;background:rgba(255,255,255,.12);border-radius:6px;overflow:hidden}
+  .bar>div{height:100%;width:0%;border-radius:6px;transition:width .25s}
+  #growthFill{background:linear-gradient(90deg,#4fae63,#9be28d)}
+  #scareFill{background:linear-gradient(90deg,#d9873f,#e05a5a)}
+  .num{width:36px;text-align:right;font-size:12px;color:#fff;font-variant-numeric:tabular-nums}
+  #bestRow{font-size:11px;color:#9fb8aa}
+  #scareRow.danger .label{color:#ff9b8a;animation:blink 0.8s infinite}
+  @keyframes blink{50%{opacity:.45}}
+
+  #skillStatus{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:10px;background:rgba(10,16,20,.55);
+    padding:6px 12px;border-radius:8px;font-size:12px;color:#dfe8e2}
+  #skillStatus .bar{width:110px;height:7px}
+  #skillFill{background:linear-gradient(90deg,#cfe6f5,#ffffff)}
+  #skillStatus.dim{opacity:.55}
+
+  #toast{position:absolute;top:84px;left:50%;transform:translateX(-50%);
+    font-size:14px;color:#fff;background:rgba(10,16,20,.62);padding:8px 18px;
+    border-radius:8px;opacity:0;transition:opacity .3s;white-space:nowrap}
+  #crosshair{position:fixed;width:22px;height:22px;border:2px solid rgba(255,255,255,.9);
+    border-radius:50%;margin:-11px 0 0 -11px;display:none;pointer-events:none;z-index:6;
+    box-shadow:0 0 5px rgba(0,0,0,.55)}
+  #crosshair::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;
+    margin:-1.5px 0 0 -1.5px;background:#fff;border-radius:50%}
+  #wormBar{position:fixed;width:74px;height:8px;background:rgba(0,0,0,.55);
+    border-radius:4px;display:none;z-index:6;pointer-events:none}
+  #wormBar>div{height:100%;background:#e8b7a8;border-radius:4px;width:0}
+  #hint{position:absolute;right:14px;bottom:12px;font-size:11px;
+    color:rgba(220,230,225,.68);text-align:right;line-height:1.8}
+  #fps{position:absolute;top:10px;right:12px;font-size:11px;color:#9fe0a8;display:none;
+    z-index:5;text-shadow:0 0 3px #000}
+
+  /* ---------- 开始 / 结束界面 ---------- */
+  .screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;background:rgba(8,14,18,.8);z-index:10;color:#e8f0ea;
+    backdrop-filter:blur(6px)}
+  .screen h1{font-size:44px;letter-spacing:8px;margin-bottom:8px;color:#f4f8f4}
+  .screen .sub{color:#9fc2ae;margin-bottom:26px;font-size:14px;letter-spacing:2px}
+  .ctl{background:rgba(255,255,255,.06);border-radius:12px;padding:18px 26px;font-size:13px;
+    line-height:2.1;color:#d5e2da;margin-bottom:26px;max-width:620px}
+  .ctl b{color:#ffd97a;font-weight:600}
+  button{pointer-events:auto;font-size:18px;padding:12px 48px;border:none;border-radius:10px;
+    background:linear-gradient(180deg,#6dbb6a,#3f8f4e);color:#fff;cursor:pointer;letter-spacing:6px}
+  button:hover{filter:brightness(1.12)}
+  button:disabled{filter:grayscale(.6);cursor:wait}
+  #overScreen{display:none}
+  #overScreen h1{color:#f0b0a0}
+  #newRecord{display:none;color:#ffd97a;font-size:15px;margin-top:8px;letter-spacing:2px}
+  #bootError{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    z-index:20;color:#f0b0a0;font-size:16px;background:rgba(8,14,18,.92);text-align:center;
+    line-height:2;padding:30px}
+</style>
+</head>
+<body>
+
+<!-- ======================= HUD ======================= -->
+<div id="hud">
+  <div id="bars">
+    <div class="barRow"><span class="label">成长值</span><div class="bar"><div id="growthFill"></div></div><span class="num" id="growthNum">0</span></div>
+    <div class="barRow" id="scareRow"><span class="label">惊吓值</span><div class="bar"><div id="scareFill"></div></div><span class="num" id="scareNum">0</span></div>
+    <div id="bestRow">最高成长值记录：<span id="bestNum">0</span></div>
+  </div>
+  <div id="skillStatus" class="dim"><span id="skillLabel">发射 · 需要飞行状态</span><div class="bar"><div id="skillFill"></div></div></div>
+  <div id="toast"></div>
+  <div id="hint">右键拖拽 旋转相机 · 滚轮 缩放 · M 静音 · H 隐藏帮助<br/>控制台输入 GAME_DEBUG 可实时调试参数</div>
+  <div id="fps"></div>
+</div>
+<div id="crosshair"></div>
+<div id="wormBar"><div id="wormFill"></div></div>
+
+<!-- ======================= 开始界面 ======================= -->
+<div class="screen" id="startScreen">
+  <h1>乌鸫的生活</h1>
+  <div class="sub">小区公园生存模拟 · 第三人称鸟类视角</div>
+  <div class="ctl">
+    <b>WASD</b> 移动 / 飞行前进　<b>空格</b> 起飞 / 降落　<b>Shift</b> 上升 · 地面小跳　<b>Ctrl</b> 下降<br/>
+    <b>鼠标点选蚯蚓并拖拽</b>：拖得足够远即可拽出，乌鸫自动啄食 +成长值；中途松手蚯蚓缩回土里<br/>
+    <b>飞行状态：鼠标瞄准 + 左键</b> 发射“白色炸弹”，命中行人 惊吓值 -5（有冷却，地面无法发射）<br/>
+    <b>右键拖拽</b> 旋转相机　<b>滚轮</b> 缩放　<b>M</b> 静音　<b>H</b> 隐藏帮助<br/>
+    蚯蚓只在<b>湿润草地</b>（深绿色斑块）刷新 · 距离两脚兽过近会累积惊吓值 · 惊吓值满 100 游戏结束
+  </div>
+  <button id="startBtn" disabled>加载中…</button>
+</div>
+
+<!-- ======================= 结束界面 ======================= -->
+<div class="screen" id="overScreen">
+  <h1>游戏结束</h1>
+  <div class="sub">惊吓值满了 —— 两脚兽的目光都聚焦在你身上…</div>
+  <div class="ctl" style="text-align:center">
+    本局成长值：<b id="finalGrowth" style="font-size:20px">0</b><br/>
+    最高成长值：<b id="finalBest">0</b>
+    <div id="newRecord">★ 新纪录！★</div>
+  </div>
+  <button id="restartBtn">重新开始</button>
+</div>
+
+<div id="bootError">Three.js 加载失败（CDN 不可达）<br/>请检查网络连接后刷新页面</div>
+
+<!-- CDN 加载失败看门狗：9 秒内模块脚本未完成启动则提示 -->
+<script>
+  window.__booted = false;
+  setTimeout(function(){
+    if(!window.__booted){
+      var d = document.getElementById('bootError');
+      if(d) d.style.display = 'flex';
+    }
+  }, 9000);
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+/* =====================================================================
+ * 《乌鸫的生活》 —— 主程序
+ * 模块结构：
+ *   §0  调试开关 (window.GAME_DEBUG)
+ *   §1  通用工具
+ *   §2  风系统（植被摆动）
+ *   §3  音频管理器（合成音效 + 预留采样接口）
+ *   §4  模型工厂 + GLTF 管线
+ *   §5  UI 管理器
+ *   §6  世界构建（公园 / 石板路 / 树林 / 湿润草地）
+ *   §7  粒子特效 & 地面残留
+ *   §8  乌鸫玩家
+ *   §9  相机 rig
+ *   §10 蚯蚓系统
+ *   §11 两脚兽（行人）系统
+ *   §12 投射物系统
+ *   §13 游戏主控 & 输入
+ * ===================================================================== */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+/* =====================================================================
+ * §0 调试开关 —— 控制台实时可改（直接对属性赋值立即生效）
+ * 例如：GAME_DEBUG.pedestrianSpawnIntervalSec = 20
+ *       GAME_DEBUG.spawnPedestrianNow()
+ * ===================================================================== */
+const DBG = window.GAME_DEBUG = {
+  /* ---- 两脚兽 ---- */
+  pedestrianSpawnIntervalSec : 180,  // 行人生成间隔（秒）
+  pedestrianFirstSpawnDelaySec : 25, // 开局第一位行人延迟（秒）
+  pedestrianWalkSpeed  : 1.25,       // 行人速度 m/s
+  pedestrianMaxAlive   : 6,          // 场上行人上限
+  scareRadius          : 4.5,        // 惊吓判定半径（米）
+  scarePerProximity    : 5,          // 靠太近时惊吓值增量
+  scareRetriggerSec    : 3.0,        // 同一行人惊吓触发冷却
+  /* ---- 惊吓值 ---- */
+  scareMax             : 100,
+  scarePerHitReduce    : 5,          // 命中行人惊吓值减少量
+  /* ---- 蚯蚓 ---- */
+  wormMaxCount         : 7,          // 场上蚯蚓数量
+  wormRespawnSec       : 12,         // 重新刷新等待（秒，带随机浮动）
+  wormDragScreenRatio  : 0.16,       // 拽出所需拖拽距离（占短边屏幕比例）
+  growthPerWorm        : 10,         // 每条蚯蚓成长值
+  /* ---- 技能 ---- */
+  projectileCooldownSec: 4,          // 发射冷却
+  projectileSpeed      : 17,         // 投射物初速
+  /* ---- 其它 ---- */
+  timeScale            : 1,          // 全局时间倍率
+  showStatsOverlay     : false,      // 显示 FPS
+  /* ---- 方法 ---- */
+  spawnPedestrianNow(){ if(window.__gameRef) window.__gameRef.peds.spawn(); },
+  resetPedestrians(){ if(window.__gameRef) window.__gameRef.peds.clear(); },
+  addScare(v){ if(window.__gameRef) window.__gameRef.game.addScare(v, 'debug'); },
+  addGrowth(v){ if(window.__gameRef) window.__gameRef.game.addGrowth(v); },
+  print(){
+    console.log(JSON.stringify({
+      pedestrianSpawnIntervalSec:DBG.pedestrianSpawnIntervalSec,
+      pedestrianFirstSpawnDelaySec:DBG.pedestrianFirstSpawnDelaySec,
+      pedestrianWalkSpeed:DBG.pedestrianWalkSpeed,
+      scareRadius:DBG.scareRadius, scarePerProximity:DBG.scarePerProximity,
+      scareRetriggerSec:DBG.scareRetriggerSec, scareMax:DBG.scareMax,
+      scarePerHitReduce:DBG.scarePerHitReduce,
+      wormMaxCount:DBG.wormMaxCount, wormRespawnSec:DBG.wormRespawnSec,
+      growthPerWorm:DBG.growthPerWorm,
+      projectileCooldownSec:DBG.projectileCooldownSec,
+      projectileSpeed:DBG.projectileSpeed, timeScale:DBG.timeScale
+    }, null, 2));
+  }
+};
+
+/* =====================================================================
+ * §1 通用工具
+ * ===================================================================== */
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand  = (a, b) => a + Math.random() * (b - a);
+const lerp  = (a, b, t) => a + (b - a) * t;
+const easeInOut = t => t * t * (3 - 2 * t);
+/** 角度阻尼插值（处理 2π 环绕） */
+function dampAngle(cur, target, lambda, dt){
+  let d = (target - cur) % (Math.PI * 2);
+  if(d >  Math.PI) d -= Math.PI * 2;
+  if(d < -Math.PI) d += Math.PI * 2;
+  return cur + d * (1 - Math.exp(-lambda * dt));
+}
+/** 按名称深度查找节点 */
+function findDeep(root, name){
+  let r = null;
+  root.traverse(o => { if(!r && o.name === name) r = o; });
+  return r;
+}
+/** Canvas 生成纹理 */
+function makeTexture(size, draw, repeat = 1){
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  if(repeat > 1){ t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); }
+  return t;
+}
+/** 软圆形贴图（粒子用） */
+let _softTex = null;
+function softCircleTexture(){
+  if(_softTex) return _softTex;
+  _softTex = makeTexture(64, (ctx, s) => {
+    const g = ctx.createRadialGradient(s/2, s/2, 2, s/2, s/2, s/2);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.6, 'rgba(255,255,255,.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  });
+  return _softTex;
+}
+
+/* 全局输入状态 */
+const keys  = new Set();
+const mouse = { x: 0, y: 0, px: innerWidth / 2, py: innerHeight / 2 };
+const raycaster = new THREE.Raycaster();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+
+/* 模块级单例（main 中赋值；Wind 在 §2 定义） */
+let renderer, scene, camera, Audio, UI, World, Bird, Rig;
+let Worms, Peds, Projectiles, Particles, Splats, Game, MODELS;
+
+/* =====================================================================
+ * §2 风系统 —— 共享 time/强度 uniform，被注入到植被材质顶点着色器
+ * ===================================================================== */
+const Wind = {
+  uniforms: { time: { value: 0 }, amp: { value: 0.8 } },
+  t: 0,
+  update(dt){
+    this.t += dt;
+    this.uniforms.time.value = this.t;
+    // 风力缓慢起伏
+    this.uniforms.amp.value = 0.65 + Math.sin(this.t * 0.31) * 0.25 + Math.sin(this.t * 0.13 + 2) * 0.15;
+    if(Audio) Audio.setWind(this.uniforms.amp.value);
+  }
+};
+/**
+ * 给材质注入顶点风摆动（支持 InstancedMesh）。
+ * amp: 摆动幅度(米)  heightRef: 归一化高度的参考长度
+ */
+function applyWindMaterial(mat, amp, heightRef){
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = Wind.uniforms.time;
+    shader.uniforms.uWindAmp = Wind.uniforms.amp;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uWindAmp;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+      {
+        float wp = uTime * 1.6;
+        #ifdef USE_INSTANCING
+          wp += instanceMatrix[3][0] * 0.31 + instanceMatrix[3][2] * 0.23;
+        #endif
+        float hf = clamp(position.y / ${heightRef.toFixed(2)}, 0.0, 1.0);
+        float sway = (sin(wp) + sin(wp * 2.33 + 1.7) * 0.5) * uWindAmp * ${amp.toFixed(3)} * hf;
+        transformed.x += sway;
+        transformed.z += sway * 0.6;
+      }`);
+  };
+  mat.customProgramCacheKey = () => 'wind_' + amp + '_' + heightRef;
+  return mat;
+}
+
+/* =====================================================================
+ * §3 音频管理器 —— WebAudio 合成音效
+ * 预留接口：sampleUrls 中填入音频 URL 即自动改用采样播放
+ * （例如 Audio.sampleUrls.birdcall = 'blackbird.mp3'）
+ * ===================================================================== */
+class AudioManager {
+  constructor(){
+    this.ctx = null;
+    this.muted = false;
+    this.sampleUrls = {};      // ← 预留：外部音频文件接口
+    this.samples = {};
+    this._windG = null; this._windV = 0.05;
+  }
+  /** 首次用户交互后调用 */
+  init(){
+    if(this.ctx) { this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = this.muted ? 0 : 0.6;
+    this.master.connect(this.ctx.destination);
+    this._buildAmbience();
+  }
+  toggleMute(){
+    this.muted = !this.muted;
+    if(this.master) this.master.gain.value = this.muted ? 0 : 0.6;
+    return this.muted;
+  }
+  _noiseBuffer(sec = 2){
+    const n = Math.floor(this.ctx.sampleRate * sec);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for(let i = 0; i < n; i++){          // 布朗噪声，更柔和
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.02 * w) / 1.02;
+      d[i] = last * 3.5;
+    }
+    return buf;
+  }
+  /** 环境底噪：风声 + 远处嘈杂声（常驻循环） */
+  _buildAmbience(){
+    const wind = this.ctx.createBufferSource();
+    wind.buffer = this._noiseBuffer(3); wind.loop = true;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 420; bp.Q.value = 0.5;
+    this._windG = this.ctx.createGain(); this._windG.gain.value = 0.04;
+    wind.connect(bp).connect(this._windG).connect(this.master);
+    wind.start();
+
+    const amb = this.ctx.createBufferSource();
+    amb.buffer = this._noiseBuffer(4); amb.loop = true;
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+    const ag = this.ctx.createGain(); ag.gain.value = 0.10;
+    amb.connect(lp).connect(ag).connect(this.master);
+    amb.start();
+  }
+  /** 风力联动（0~1） */
+  setWind(v){ if(this._windG) this._windG.gain.value = 0.02 + v * 0.05; }
+  _tone(type, f0, f1, t0, dur, vol){
+    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t0);
+    if(f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(this.master);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+  _noise(t0, dur, vol, freq, type = 'bandpass'){
+    const c = this.ctx, s = c.createBufferSource();
+    s.buffer = this._noiseBuffer(0.5);
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    s.connect(f).connect(g).connect(this.master);
+    s.start(t0); s.stop(t0 + dur + 0.05);
+  }
+  /** 乌鸫鸣叫（合成笛音；可用 sampleUrls.birdcall 替换） */
+  chirp(alarm = false){
+    if(!this.ctx) return;
+    let t = this.ctx.currentTime + 0.02;
+    const notes = alarm ? 3 : 4 + Math.floor(Math.random() * 3);
+    for(let i = 0; i < notes; i++){
+      const f = alarm ? rand(2800, 3600) : rand(1900, 3400);
+      this._tone('sine', f, f * rand(0.82, 1.22), t, rand(0.07, 0.13), alarm ? 0.10 : 0.06);
+      t += rand(0.09, alarm ? 0.13 : 0.19);
+    }
+  }
+  peck(){  if(this.ctx) this._noise(this.ctx.currentTime, 0.06, 0.16, 1400, 'highpass'); }
+  flap(v = 0.05){ if(this.ctx) this._noise(this.ctx.currentTime, 0.09, v, 300, 'lowpass'); }
+  spit(){ if(this.ctx) this._tone('sine', 520, 190, this.ctx.currentTime + 0.01, 0.08, 0.07); }
+  splat(){
+    if(!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this._noise(t, 0.13, 0.22, 750);
+    this._tone('sine', 270, 70, t, 0.13, 0.14);
+  }
+  sting(){
+    if(!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this._tone('sawtooth', 660, 660, t, 0.22, 0.045);
+    this._tone('sawtooth', 699, 699, t, 0.22, 0.045);
+  }
+  gameover(){
+    if(!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this._tone('sine', 520, 515, t, 0.28, 0.1);
+    this._tone('sine', 392, 388, t + 0.3, 0.3, 0.1);
+    this._tone('sine', 262, 258, t + 0.62, 0.55, 0.1);
+  }
+}
+
+/* =====================================================================
+ * §4 模型工厂 —— 程序化生成低面写实模型，再经 GLTF 管线走一遍
+ *    （GLTFExporter 导出 GLB -> GLTFLoader 读回，与外部模型接入一致）
+ * ===================================================================== */
+
+/** GLTF 管线：object -> GLB ArrayBuffer -> 加载后的 gltf.scene */
+async function gltfRoundtrip(obj){
+  const exporter = new GLTFExporter();
+  const glb = await new Promise((res, rej) => exporter.parse(obj, res, rej, { binary: true }));
+  const loader = new GLTFLoader();
+  const gltf = await new Promise((res, rej) => loader.parse(glb, '', res, rej));
+  return gltf.scene;
+}
+
+const Factory = {
+  /** 成年雄性乌鸫：黑羽 + 橙黄喙 + 黄色眼圈，面朝 +Z */
+  blackbird(){
+    const feather = new THREE.MeshStandardMaterial({ name:'feather', color:0x141419, roughness:0.5, metalness:0.12 });
+    const beakMat = new THREE.MeshStandardMaterial({ name:'beak', color:0xf0a91b, roughness:0.35 });
+    const eyeMat  = new THREE.MeshStandardMaterial({ name:'eye', color:0x0a0a0c, roughness:0.15 });
+    const legMat  = new THREE.MeshStandardMaterial({ name:'leg', color:0x6e5232, roughness:0.7 });
+
+    const root = new THREE.Group(); root.name = 'bird';
+    const body = new THREE.Group(); body.name = 'body'; root.add(body);
+
+    const torso = new THREE.Mesh(new THREE.SphereGeometry(0.155, 14, 10), feather);
+    torso.scale.set(0.92, 0.88, 1.5); torso.position.y = 0.17; torso.name = 'torso';
+    body.add(torso);
+
+    const headG = new THREE.Group(); headG.name = 'headG';
+    headG.position.set(0, 0.30, 0.24); body.add(headG);
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.088, 12, 9), feather);
+    skull.name = 'head'; headG.add(skull);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.024, 0.105, 6), beakMat);
+    beak.rotation.x = Math.PI / 2;                     // 指向 +Z
+    beak.position.set(0, -0.005, 0.135); beak.name = 'beak';
+    headG.add(beak);
+    for(const s of [-1, 1]){
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.0115, 8, 6), eyeMat);
+      eye.position.set(0.052 * s, 0.02, 0.062); headG.add(eye);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0145, 0.0035, 5, 10), beakMat);
+      ring.position.set(0.056 * s, 0.02, 0.058); ring.rotation.y = Math.PI / 2;
+      headG.add(ring);                                  // 雄鸟黄色眼圈
+    }
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.016, 0.21), feather);
+    tail.position.set(0, 0.19, -0.32); tail.rotation.x = -0.21; tail.name = 'tail';
+    body.add(tail);
+
+    for(const s of [-1, 1]){
+      const wing = new THREE.Group();
+      wing.name = s < 0 ? 'wingL' : 'wingR';
+      wing.position.set(0.10 * s, 0.20, 0.02);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.012, 0.14), feather);
+      m.position.x = 0.16 * s; m.rotation.y = -0.15 * s;
+      wing.add(m); body.add(wing);
+    }
+    for(const s of [-1, 1]){
+      const leg = new THREE.Group();
+      leg.name = s < 0 ? 'legL' : 'legR';
+      leg.position.set(0.045 * s, 0.10, 0.02);
+      const lm = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.10, 5), legMat);
+      lm.position.y = -0.05; leg.add(lm);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.006, 0.06), legMat);
+      foot.position.set(0, -0.10, 0.014); leg.add(foot);
+      body.add(leg);
+    }
+    return root;
+  },
+
+  /** 写实普通路人（约 1.7m），面朝 +Z；材质按 name 着色便于随机换装 */
+  human(){
+    const jacket = new THREE.MeshStandardMaterial({ name:'jacket', color:0x50565e, roughness:0.85 });
+    const pants  = new THREE.MeshStandardMaterial({ name:'pants',  color:0x2b2f38, roughness:0.9 });
+    const skin   = new THREE.MeshStandardMaterial({ name:'skin',   color:0xd9b08c, roughness:0.65 });
+    const hair   = new THREE.MeshStandardMaterial({ name:'hair',   color:0x2a241d, roughness:0.8 });
+    const dark   = new THREE.MeshStandardMaterial({ name:'dark',   color:0x1e2024, roughness:0.8 });
+
+    const root = new THREE.Group(); root.name = 'human';
+    const body = new THREE.Group(); body.name = 'body'; root.add(body);
+
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.125, 0.52, 8), jacket);
+    torso.position.y = 1.21; torso.name = 'torso'; body.add(torso);
+    const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.15, 0.18, 8), pants);
+    pelvis.position.y = 0.92; pelvis.name = 'pelvis'; body.add(pelvis);
+
+    const headG = new THREE.Group(); headG.name = 'headG';
+    headG.position.y = 1.60; body.add(headG);
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), skin);
+    skull.name = 'head'; headG.add(skull);
+    const hairM = new THREE.Mesh(new THREE.SphereGeometry(0.101, 10, 6, 0, Math.PI*2, 0, 1.4), hair);
+    hairM.position.y = 0.012; hairM.name = 'hairM'; headG.add(hairM);
+    for(const s of [-1, 1]){                            // 极小的眼睛，避免卡通感
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.0085, 6, 5), dark);
+      eye.position.set(0.034 * s, 0.008, 0.084); headG.add(eye);
+    }
+    for(const s of [-1, 1]){
+      const arm = new THREE.Group();
+      arm.name = s < 0 ? 'armL' : 'armR';
+      arm.position.set(0.20 * s, 1.44, 0);
+      const up = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.028, 0.34, 6), jacket);
+      up.position.y = -0.17; arm.add(up);
+      const low = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.023, 0.26, 6), jacket);
+      low.position.y = -0.44; arm.add(low);
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.036, 6, 5), skin);
+      hand.position.y = -0.60; hand.name = 'hand'; arm.add(hand);
+      body.add(arm);
+    }
+    for(const s of [-1, 1]){
+      const leg = new THREE.Group();
+      leg.name = s < 0 ? 'legL' : 'legR';
+      leg.position.set(0.088 * s, 0.95, 0);
+      const lm = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.042, 0.88, 6), pants);
+      lm.position.y = -0.44; lm.name = 'pantsM'; leg.add(lm);
+      const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.055, 0.21), dark);
+      shoe.position.set(0, -0.925, 0.03); shoe.name = 'shoe'; leg.add(shoe);
+      body.add(leg);
+    }
+    return root;
+  },
+
+  /** 蚯蚓：泥土小丘 + 探出的虫体（虫体单位长度，运行时缩放） */
+  worm(){
+    const dirt = new THREE.MeshStandardMaterial({ name:'dirt', color:0x4b3a26, roughness:1 });
+    const wormM = new THREE.MeshStandardMaterial({ name:'wormM', color:0xa85948, roughness:0.6 });
+    const root = new THREE.Group(); root.name = 'worm';
+    const mound = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 5), dirt);
+    mound.scale.set(1, 0.32, 1); mound.position.y = 0.008; root.add(mound);
+    const bg = new THREE.CylinderGeometry(0.012, 0.016, 1, 6);
+    bg.translate(0, 0.5, 0);                            // 底部为缩放基准
+    const body = new THREE.Mesh(bg, wormM); body.name = 'body'; body.scale.y = 0.07;
+    root.add(body);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0125, 6, 5), wormM);
+    tip.position.y = 1; tip.name = 'tip'; body.add(tip);
+    return root;
+  },
+
+  /** 阔叶树原型：trunk + canopy */
+  treeRound(){
+    const bark = new THREE.MeshStandardMaterial({ name:'bark', color:0x6b5138, roughness:1, flatShading:true });
+    const leaf = new THREE.MeshStandardMaterial({ name:'leaf', color:0xffffff, roughness:0.9, flatShading:true });
+    const root = new THREE.Group(); root.name = 'treeR';
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.19, 1.7, 6), bark);
+    trunk.position.y = 0.85; trunk.name = 'trunk'; root.add(trunk);
+    const g = new THREE.IcosahedronGeometry(1.3, 1); g.scale(1, 0.82, 1);
+    const canopy = new THREE.Mesh(g, leaf);
+    canopy.position.y = 2.25; canopy.name = 'canopy'; root.add(canopy);
+    return root;
+  },
+  /** 针叶树原型 */
+  treePine(){
+    const bark = new THREE.MeshStandardMaterial({ name:'bark', color:0x5d452e, roughness:1, flatShading:true });
+    const leaf = new THREE.MeshStandardMaterial({ name:'leaf', color:0xffffff, roughness:0.9, flatShading:true });
+    const root = new THREE.Group(); root.name = 'treeP';
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 1.3, 6), bark);
+    trunk.position.y = 0.65; trunk.name = 'trunk'; root.add(trunk);
+    const canopy = new THREE.Mesh(new THREE.ConeGeometry(1.05, 2.7, 7), leaf);
+    canopy.position.y = 2.35; canopy.name = 'canopy'; root.add(canopy);
+    return root;
+  },
+
+  /** 长椅 */
+  bench(){
+    const wood  = new THREE.MeshStandardMaterial({ name:'wood',  color:0x8a6a45, roughness:0.85 });
+    const metal = new THREE.MeshStandardMaterial({ name:'metal', color:0x3a3f45, roughness:0.5, metalness:0.5 });
+    const root = new THREE.Group(); root.name = 'bench';
+    for(const s of [-1, 1]){
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.42, 0.55), metal);
+      leg.position.set(0.62 * s, 0.21, 0); root.add(leg);
+    }
+    for(let i = 0; i < 3; i++){
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.035, 0.13), wood);
+      slat.position.set(0, 0.44, -0.16 + i * 0.16); root.add(slat);
+    }
+    for(let i = 0; i < 2; i++){
+      const back = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.11, 0.03), wood);
+      back.position.set(0, 0.62 + i * 0.16, -0.26); back.rotation.x = -0.12; root.add(back);
+    }
+    return root;
+  },
+  /** 路灯 */
+  lamp(){
+    const metal = new THREE.MeshStandardMaterial({ name:'metal', color:0x2f3338, roughness:0.6, metalness:0.4 });
+    const glass = new THREE.MeshStandardMaterial({ name:'glass', color:0xdfe8ef, roughness:0.3 });
+    const root = new THREE.Group(); root.name = 'lamp';
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 3.1, 6), metal);
+    pole.position.y = 1.55; root.add(pole);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.12, 0.32), metal);
+    head.position.y = 3.16; root.add(head);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), glass);
+    bulb.position.y = 3.06; root.add(bulb);
+    return root;
+  }
+};
+
+/* =====================================================================
+ * §5 UI 管理器
+ * ===================================================================== */
+class UIManager {
+  constructor(){
+    const $ = id => document.getElementById(id);
+    this.growthFill = $('growthFill'); this.growthNum = $('growthNum');
+    this.scareFill  = $('scareFill');  this.scareNum  = $('scareNum');
+    this.scareRow   = $('scareRow');   this.bestNum   = $('bestNum');
+    this.skillLabel = $('skillLabel'); this.skillFill = $('skillFill');
+    this.skillBox   = $('skillStatus');
+    this.toastEl = $('toast'); this.crossEl = $('crosshair');
+    this.wormBar = $('wormBar'); this.wormFill = $('wormFill');
+    this.hintEl = $('hint'); this.fpsEl = $('fps');
+    this.startScreen = $('startScreen'); this.startBtn = $('startBtn');
+    this.overScreen = $('overScreen'); this.restartBtn = $('restartBtn');
+    this.finalGrowth = $('finalGrowth'); this.finalBest = $('finalBest');
+    this.newRecord = $('newRecord');
+    this._toastTimer = null;
+  }
+  setBars(growth, scare, scareMax){
+    this.growthFill.style.width = clamp(growth % 100, 0, 100) + '%';
+    if(growth > 0 && growth % 100 === 0) this.growthFill.style.width = '100%';
+    this.growthNum.textContent = Math.floor(growth);
+    this.scareFill.style.width = clamp(scare / scareMax * 100, 0, 100) + '%';
+    this.scareNum.textContent = Math.floor(scare);
+    this.scareRow.classList.toggle('danger', scare >= scareMax * 0.75);
+  }
+  setBest(v){ this.bestNum.textContent = Math.floor(v); }
+  setSkill(cd, cdMax, canFire, flying){
+    if(!flying){
+      this.skillLabel.textContent = '发射 · 需要飞行状态';
+      this.skillBox.classList.add('dim');
+      this.skillFill.style.width = '0%';
+    }else if(cd > 0){
+      this.skillLabel.textContent = `发射冷却 · ${cd.toFixed(1)}s`;
+      this.skillBox.classList.remove('dim');
+      this.skillFill.style.width = (100 - cd / cdMax * 100) + '%';
+    }else{
+      this.skillLabel.textContent = '发射 · 就绪';
+      this.skillBox.classList.remove('dim');
+      this.skillFill.style.width = '100%';
+    }
+  }
+  toast(msg, dur = 1.8){
+    this.toastEl.textContent = msg;
+    this.toastEl.style.opacity = '1';
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => this.toastEl.style.opacity = '0', dur * 1000);
+  }
+  crosshair(x, y, show){
+    this.crossEl.style.display = show ? 'block' : 'none';
+    this.crossEl.style.left = x + 'px'; this.crossEl.style.top = y + 'px';
+  }
+  wormProgress(x, y, p){
+    this.wormBar.style.display = 'block';
+    this.wormBar.style.left = (x - 37) + 'px';
+    this.wormBar.style.top = (y + 26) + 'px';
+    this.wormFill.style.width = (p * 100) + '%';
+  }
+  hideWormProgress(){ this.wormBar.style.display = 'none'; }
+  toggleHint(){ this.hintEl.style.display = this.hintEl.style.display === 'none' ? 'block' : 'none'; }
+  setStartReady(){
+    this.startBtn.disabled = false;
+    this.startBtn.textContent = '开始游戏';
+  }
+  showOver(growth, best, isNew){
+    this.finalGrowth.textContent = Math.floor(growth);
+    this.finalBest.textContent = Math.floor(best);
+    this.newRecord.style.display = isNew ? 'block' : 'none';
+    this.overScreen.style.display = 'flex';
+  }
+  hideOver(){ this.overScreen.style.display = 'none'; }
+}
+
+/* =====================================================================
+ * §6 世界构建 —— 小区小公园：石板路 / 密集树林 / 湿润草地 / 绿篱
+ * ===================================================================== */
+function buildWorld(scene){
+  const W = {
+    curve: null, pathLen: 0, pathPts: [],
+    zones: [ { x: -16, z: 4, r: 11 }, { x: 14, z: -2, r: 10 } ],   // 湿润草地
+    woods: { x: 28, z: 26, r: 15 }                                   // 树林区
+  };
+
+  /* ---- 天空 ---- */
+  const skyTex = makeTexture(256, (ctx, s) => {
+    const g = ctx.createLinearGradient(0, 0, 0, s);
+    g.addColorStop(0, '#7fb5e6'); g.addColorStop(0.55, '#bcd9ef'); g.addColorStop(1, '#e6f1f5');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  });
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(260, 16, 10),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
+  );
+  scene.add(sky);
+  scene.fog = new THREE.Fog(0xcfe0ea, 70, 200);
+
+  /* ---- 光照：自然日光 + 半球环境光（树林阴影由树冠投影自然变暗） ---- */
+  scene.add(new THREE.HemisphereLight(0xbfd7ea, 0x8a9a6a, 0.65));
+  const sun = new THREE.DirectionalLight(0xfff2dd, 2.0);
+  sun.position.set(38, 55, 22);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -58; sun.shadow.camera.right = 58;
+  sun.shadow.camera.top = 58; sun.shadow.camera.bottom = -58;
+  sun.shadow.camera.near = 5; sun.shadow.camera.far = 160;
+  sun.shadow.bias = -0.0006;
+  scene.add(sun); scene.add(sun.target);
+
+  /* ---- 地面 ---- */
+  const groundTex = makeTexture(256, (ctx, s) => {
+    ctx.fillStyle = '#5d8a40'; ctx.fillRect(0, 0, s, s);
+    for(let i = 0; i < 2600; i++){
+      const g = 90 + Math.random() * 80;
+      ctx.fillStyle = `rgba(${g * 0.55 | 0},${g | 0},${g * 0.42 | 0},0.35)`;
+      ctx.fillRect(Math.random() * s, Math.random() * s, 1.5, 1.5);
+    }
+  }, 10);
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(110, 110),
+    new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  /* ---- 石板蜿蜒小道 ---- */
+  const wp = [
+    new THREE.Vector3(-42, 0, 26), new THREE.Vector3(-24, 0, 18),
+    new THREE.Vector3(-10, 0, 10), new THREE.Vector3(0, 0, -2),
+    new THREE.Vector3(10, 0, -12), new THREE.Vector3(26, 0, -18),
+    new THREE.Vector3(40, 0, -26)
+  ];
+  W.curve = new THREE.CatmullRomCurve3(wp, false, 'catmullrom', 0.5);
+  W.pathLen = W.curve.getLength();
+  W.pathPts = W.curve.getSpacedPoints(220);
+
+  const stoneGeo = new THREE.CylinderGeometry(0.42, 0.46, 0.07, 7);
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9a9890, roughness: 0.95 });
+  const stoneCount = Math.floor(W.pathLen / 0.95);
+  const stones = new THREE.InstancedMesh(stoneGeo, stoneMat, stoneCount);
+  stones.receiveShadow = true;
+  {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    for(let i = 0; i < stoneCount; i++){
+      const t = i / (stoneCount - 1);
+      const p = W.curve.getPointAt(t);
+      const tan = W.curve.getTangentAt(t);
+      e.set(0, Math.atan2(tan.x, tan.z) + rand(-0.3, 0.3), 0);
+      q.setFromEuler(e);
+      const s = rand(0.85, 1.15);
+      m.compose(
+        new THREE.Vector3(p.x + rand(-0.08, 0.08), 0.035, p.z + rand(-0.08, 0.08)),
+        q, new THREE.Vector3(s, 1, s)
+      );
+      stones.setMatrixAt(i, m);
+      const c = 0.88 + Math.random() * 0.18;
+      stones.setColorAt(i, new THREE.Color(c, c, c * 0.98));
+    }
+  }
+  scene.add(stones);
+
+  /* ---- 湿润草地 / 树林地表 视觉斑块 ---- */
+  const moistTex = makeTexture(256, (ctx, s) => {
+    const g = ctx.createRadialGradient(s/2, s/2, s*0.1, s/2, s/2, s*0.5);
+    g.addColorStop(0, 'rgba(38,84,44,0.9)');
+    g.addColorStop(0.75, 'rgba(48,96,52,0.55)');
+    g.addColorStop(1, 'rgba(48,96,52,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  });
+  const woodsTex = makeTexture(256, (ctx, s) => {
+    const g = ctx.createRadialGradient(s/2, s/2, s*0.1, s/2, s/2, s*0.5);
+    g.addColorStop(0, 'rgba(92,74,48,0.9)');
+    g.addColorStop(0.7, 'rgba(88,96,58,0.5)');
+    g.addColorStop(1, 'rgba(88,96,58,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+    for(let i = 0; i < 500; i++){
+      ctx.fillStyle = 'rgba(70,55,35,0.4)';
+      ctx.fillRect(Math.random()*s, Math.random()*s, 2, 2);
+    }
+  });
+  for(const z of W.zones){
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 48),
+      new THREE.MeshStandardMaterial({ map: moistTex, transparent: true, depthWrite: false, roughness: 1 }));
+    m.rotation.x = -Math.PI / 2; m.scale.setScalar(z.r * 1.04);
+    m.position.set(z.x, 0.02, z.z); m.renderOrder = 1;
+    scene.add(m);
+  }
+  {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 48),
+      new THREE.MeshStandardMaterial({ map: woodsTex, transparent: true, depthWrite: false, roughness: 1 }));
+    m.rotation.x = -Math.PI / 2; m.scale.setScalar(W.woods.r + 1.6);
+    m.position.set(W.woods.x, 0.015, W.woods.z); m.renderOrder = 1;
+    scene.add(m);
+  }
+
+  /* ---- 树林（实例化：树干 + 树冠分列，带风摆动） ---- */
+  const treeR = MODELS.treeRound, treeP = MODELS.treePine;
+  const rTrunk = findDeep(treeR, 'trunk'), rCanopy = findDeep(treeR, 'canopy');
+  const pTrunk = findDeep(treeP, 'trunk'), pCanopy = findDeep(treeP, 'canopy');
+
+  const roundPts = [], pinePts = [];
+  const minDistPath = p => W.pathPts.reduce((m, q) => Math.min(m, Math.hypot(p.x - q.x, p.z - q.z)), 99);
+  // 树林密集区
+  let guard = 0;
+  while(roundPts.length + pinePts.length < 46 && guard++ < 900){
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (W.woods.r - 1);
+    const p = { x: W.woods.x + Math.cos(a) * r, z: W.woods.z + Math.sin(a) * r };
+    const all = roundPts.concat(pinePts);
+    if(all.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 1.7)) continue;
+    (Math.random() < 0.62 ? roundPts : pinePts).push(p);
+  }
+  // 零星散树
+  for(const p of [{x:-30,z:-16},{x:-22,z:-32},{x:20,z:10},{x:-38,z:8},{x:34,z:-6}]){
+    (Math.random() < 0.5 ? roundPts : pinePts).push(p);
+  }
+  const makeForest = (pts, trunk, canopy, cMin, cMax) => {
+    if(!pts.length) return;
+    const trunkI = new THREE.InstancedMesh(trunk.geometry, trunk.material, pts.length);
+    const canopyI = new THREE.InstancedMesh(canopy.geometry, canopy.material, pts.length);
+    trunkI.castShadow = canopyI.castShadow = true;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    pts.forEach((p, i) => {
+      q.setFromAxisAngle(_v1.set(0,1,0), Math.random() * Math.PI * 2);
+      const s = rand(0.85, 1.3);
+      m.compose(new THREE.Vector3(p.x, 0, p.z), q, new THREE.Vector3(s, s * rand(0.9,1.15), s));
+      trunkI.setMatrixAt(i, m); canopyI.setMatrixAt(i, m);
+      col.setHSL(rand(0.24, 0.32), rand(0.42, 0.6), rand(cMin, cMax));
+      canopyI.setColorAt(i, col);
+    });
+    applyWindMaterial(canopy.material, 0.045, 1.0);
+    scene.add(trunkI, canopyI);
+  };
+  makeForest(roundPts, rTrunk, rCanopy, 0.28, 0.42);
+  makeForest(pinePts, pTrunk, pCanopy, 0.18, 0.3);
+
+  /* ---- 草叶（实例化 + 顶点风摆动；湿润草地更密） ---- */
+  const bladeH = 0.42;
+  const bladeGeo = new THREE.BufferGeometry();
+  bladeGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    -0.028, 0, 0,   0.028, 0, 0,   -0.0154, bladeH*0.58, 0,
+     0.0154, bladeH*0.58, 0,   0, bladeH, 0
+  ]), 3));
+  bladeGeo.setIndex([0, 1, 2, 2, 1, 3, 2, 3, 4]);
+  bladeGeo.computeVertexNormals();
+  const bladeMat = applyWindMaterial(new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: 1, side: THREE.DoubleSide
+  }), 0.06, bladeH);
+
+  const bladePts = [];
+  for(const z of W.zones){
+    for(let i = 0; i < 2100; i++){
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * z.r;
+      const p = { x: z.x + Math.cos(a)*r, z: z.z + Math.sin(a)*r };
+      if(minDistPath(p) < 0.8) continue;
+      bladePts.push({ ...p, moist: true });
+    }
+  }
+  let g2 = 0;
+  while(bladePts.length < 6400 && g2++ < 30000){
+    const p = { x: rand(-42, 42), z: rand(-42, 42) };
+    if(minDistPath(p) < 0.8) continue;
+    const dw = Math.hypot(p.x - W.woods.x, p.z - W.woods.z);
+    if(dw < W.woods.r && Math.random() > 0.3) continue;      // 树林里草稀疏
+    if(W.zones.some(z => Math.hypot(p.x-z.x, p.z-z.z) < z.r)) continue;
+    bladePts.push({ ...p, moist: false });
+  }
+  const grass = new THREE.InstancedMesh(bladeGeo, bladeMat, bladePts.length);
+  {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    bladePts.forEach((p, i) => {
+      q.setFromAxisAngle(_v1.set(0,1,0), Math.random() * Math.PI * 2);
+      m.compose(new THREE.Vector3(p.x, 0, p.z), q, new THREE.Vector3(1, rand(0.7, 1.6), 1));
+      grass.setMatrixAt(i, m);
+      if(p.moist) col.setHSL(rand(0.27, 0.33), rand(0.5, 0.65), rand(0.22, 0.34));
+      else        col.setHSL(rand(0.24, 0.31), rand(0.4, 0.55), rand(0.3, 0.44));
+      grass.setColorAt(i, col);
+    });
+  }
+  scene.add(grass);
+
+  /* ---- 四周绿篱边界 ---- */
+  const hedgeGeo = new THREE.IcosahedronGeometry(1, 1);
+  const hedgeMat = applyWindMaterial(new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: 1, flatShading: true
+  }), 0.02, 1.0);
+  const hedgePts = [];
+  for(let i = -43; i <= 43; i += 3.4){
+    hedgePts.push({x: i, z: -43.6}, {x: i, z: 43.6}, {x: -43.6, z: i}, {x: 43.6, z: i});
+  }
+  const hedge = new THREE.InstancedMesh(hedgeGeo, hedgeMat, hedgePts.length);
+  hedge.castShadow = true;
+  {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    hedgePts.forEach((p, i) => {
+      q.setFromEuler(new THREE.Euler(0, Math.random()*Math.PI, 0));
+      m.compose(new THREE.Vector3(p.x, rand(0.35, 0.5), p.z), q,
+        new THREE.Vector3(rand(1.4,1.9), rand(0.7,1.0), rand(1.1,1.5)));
+      hedge.setMatrixAt(i, m);
+      col.setHSL(rand(0.26, 0.33), rand(0.4, 0.55), rand(0.16, 0.26));
+      hedge.setColorAt(i, col);
+    });
+  }
+  scene.add(hedge);
+
+  /* ---- 长椅 & 路灯（沿路摆放） ---- */
+  const placeAlong = (proto, t, side, name) => {
+    const obj = proto.clone(true);
+    const p = W.curve.getPointAt(t), tan = W.curve.getTangentAt(t);
+    const nx = -tan.z, nz = tan.x;
+    obj.position.set(p.x + nx * side, 0, p.z + nz * side);
+    obj.rotation.y = Math.atan2(tan.x, tan.z) + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    obj.traverse(o => { if(o.isMesh) o.castShadow = true; });
+    obj.name = name;
+    scene.add(obj);
+  };
+  placeAlong(MODELS.bench, 0.34, 1.6, 'bench1');
+  placeAlong(MODELS.bench, 0.72, -1.6, 'bench2');
+  placeAlong(MODELS.lamp, 0.15, 2.2, 'lamp1');
+  placeAlong(MODELS.lamp, 0.50, -2.2, 'lamp2');
+  placeAlong(MODELS.lamp, 0.88, 2.2, 'lamp3');
+
+  /* ---- 云 ---- */
+  const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+  W.clouds = [];
+  for(let i = 0; i < 5; i++){
+    const c = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), cloudMat);
+    c.scale.set(rand(5, 9), rand(1.2, 2), rand(3, 5));
+    c.position.set(rand(-120, 120), rand(55, 80), rand(-120, 120));
+    scene.add(c); W.clouds.push(c);
+  }
+  return W;
+}
+
+/* =====================================================================
+ * §7 粒子特效（白色流体 / 尘土 / 星光） & 地面白色残留
+ * ===================================================================== */
+class ParticleSystem {
+  constructor(scene, max = 520){
+    this.max = max;
+    this.pos = new Float32Array(max * 3);
+    this.alpha = new Float32Array(max);
+    this.size = new Float32Array(max);
+    this.data = Array.from({ length: max }, () =>
+      ({ life: 0, maxLife: 1, vel: new THREE.Vector3(), grav: 0, drag: 1, size0: 0.1 }));
+    this.cursor = 0;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    g.setAttribute('aAlpha', new THREE.BufferAttribute(this.alpha, 1));
+    g.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1));
+    const m = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: softCircleTexture() } },
+      vertexShader: `
+        attribute float aSize; attribute float aAlpha; varying float vA;
+        void main(){
+          vA = aAlpha;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * (260.0 / max(0.1, -mv.z));
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform sampler2D uTex; varying float vA;
+        void main(){
+          vec4 t = texture2D(uTex, gl_PointCoord);
+          gl_FragColor = vec4(vec3(0.95, 0.97, 1.0), t.a * vA);
+          if(gl_FragColor.a < 0.01) discard;
+        }`,
+      transparent: true, depthWrite: false
+    });
+    this.points = new THREE.Points(g, m);
+    this.points.frustumCulled = false;
+    scene.add(this.points);
+  }
+  emit(p, vel, life, size, grav = 0, drag = 1){
+    const i = this.cursor; this.cursor = (this.cursor + 1) % this.max;
+    const d = this.data[i];
+    d.life = d.maxLife = life; d.vel.copy(vel); d.grav = grav; d.drag = drag; d.size0 = size;
+    this.pos[i*3] = p.x; this.pos[i*3+1] = p.y; this.pos[i*3+2] = p.z;
+    this.alpha[i] = 1; this.size[i] = size;
+  }
+  /** 白色液体飞溅 */
+  splash(p, n = 22){
+    for(let i = 0; i < n; i++){
+      _v1.set(rand(-1,1), rand(0.4, 1.6), rand(-1,1)).normalize().multiplyScalar(rand(1, 3.6));
+      this.emit(p, _v1, rand(0.3, 0.7), rand(0.05, 0.15), 7, 0.96);
+    }
+  }
+  /** 投射物尾迹液滴 */
+  trail(p){
+    _v1.set(rand(-0.3, 0.3), rand(-0.2, 0.1), rand(-0.3, 0.3));
+    this.emit(p, _v1, 0.45, rand(0.07, 0.12), 3, 0.9);
+  }
+  /** 落地尘土 */
+  dust(p){
+    for(let i = 0; i < 8; i++){
+      _v1.set(rand(-1,1), rand(0.2, 0.8), rand(-1,1)).multiplyScalar(rand(0.4, 1.2));
+      this.emit(_v2.set(p.x, 0.03, p.z), _v1, rand(0.3, 0.6), rand(0.08, 0.16), 1.5, 0.92);
+    }
+  }
+  /** 啄食星光 */
+  sparkle(p){
+    for(let i = 0; i < 10; i++){
+      _v1.set(rand(-1,1), rand(0.5, 1.5), rand(-1,1)).multiplyScalar(rand(0.5, 1.4));
+      this.emit(p, _v1, rand(0.4, 0.8), rand(0.04, 0.09), 2, 0.94);
+    }
+  }
+  update(dt){
+    const g = this.points.geometry;
+    for(let i = 0; i < this.max; i++){
+      const d = this.data[i];
+      if(d.life <= 0){ this.alpha[i] = 0; continue; }
+      d.life -= dt;
+      d.vel.y -= d.grav * dt;
+      d.vel.multiplyScalar(1 - (1 - d.drag) * dt * 60 * 0.016);
+      this.pos[i*3]   += d.vel.x * dt;
+      this.pos[i*3+1] += d.vel.y * dt;
+      this.pos[i*3+2] += d.vel.z * dt;
+      if(this.pos[i*3+1] < 0.01) this.pos[i*3+1] = 0.01;
+      const a = Math.max(0, d.life / d.maxLife);
+      this.alpha[i] = a;
+      this.size[i] = d.size0 * (0.5 + 0.5 * a);
+    }
+    g.attributes.position.needsUpdate = true;
+    g.attributes.aAlpha.needsUpdate = true;
+    g.attributes.aSize.needsUpdate = true;
+  }
+}
+
+/** 地面白色残留渍（淡出） */
+class SplatPool {
+  constructor(scene, n = 10){
+    this.pool = [];
+    const geo = new THREE.CircleGeometry(0.24, 12);
+    for(let i = 0; i < n; i++){
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: 0xf2f5ef, transparent: true, opacity: 0, depthWrite: false
+      }));
+      m.rotation.x = -Math.PI / 2; m.position.y = 0.045; m.renderOrder = 2;
+      m.visible = false; scene.add(m);
+      this.pool.push({ mesh: m, life: 0 });
+    }
+  }
+  spawn(p){
+    const s = this.pool.reduce((m, c) => c.life < m.life ? c : m, this.pool[0]);
+    s.life = 9;
+    s.mesh.visible = true;
+    s.mesh.position.set(p.x, 0.045, p.z);
+    s.mesh.scale.setScalar(rand(0.8, 1.5));
+    s.mesh.rotation.z = Math.random() * Math.PI;
+  }
+  update(dt){
+    for(const s of this.pool){
+      if(s.life <= 0) continue;
+      s.life -= dt;
+      s.mesh.material.opacity = clamp(s.life / 4, 0, 0.8);
+      if(s.life <= 0) s.mesh.visible = false;
+    }
+  }
+  clear(){ this.pool.forEach(s => { s.life = 0; s.mesh.visible = false; }); }
+}
+
+/* =====================================================================
+ * §8 乌鸫玩家 —— 移动 / 飞行物理 / 动画
+ *    物理：飞行受重力，需前进速度获得升力；落地水平速度衰减；地面可小跳
+ * ===================================================================== */
+class BirdPlayer {
+  constructor(scene, model){
+    this.group = new THREE.Group();
+    scene.add(this.group);
+    model.traverse(o => { if(o.isMesh) o.castShadow = true; });
+    this.group.add(model);
+    this.model = model;
+    this.body  = findDeep(model, 'body');
+    this.headG = findDeep(model, 'headG');
+    this.beak  = findDeep(model, 'beak');
+    this.wingL = findDeep(model, 'wingL');
+    this.wingR = findDeep(model, 'wingR');
+    this.legL  = findDeep(model, 'legL');
+    this.legR  = findDeep(model, 'legR');
+
+    this.vel = new THREE.Vector3();
+    this.grounded = true; this.flying = false; this.hop = false;
+    this.heading = 0; this.bank = 0;
+    this.flapPhase = 0; this.walkPhase = 0; this.wingMix = 0;
+    this.peckT = -1; this.moving = false; this.speed = 0;
+    this.reset();
+  }
+  reset(){
+    this.group.position.set(-16, 0, 2);
+    this.heading = Math.atan2(0 - (-16), -2 - 2);   // 朝小道方向
+    this.vel.set(0, 0, 0);
+    this.grounded = true; this.flying = false; this.hop = false;
+    this.wingMix = 0; this.peckT = -1;
+    this.body.rotation.set(0, 0, 0);
+  }
+  get isFlying(){ return !this.grounded && this.flying; }
+  onSpace(){
+    if(Game.state !== 'playing') return;
+    if(this.grounded) this.takeOff();
+    else if(this.flying) this.flying = false;        // 切断动力，降落
+    else if(this.hop){ this.flying = true; this.hop = false; }  // 小跳中再按空格→转飞行
+  }
+  onHopKey(){
+    if(Game.state === 'playing' && this.grounded){
+      this.vel.y = 2.1; this.grounded = false; this.hop = true;
+    }
+  }
+  takeOff(){
+    this.grounded = false; this.flying = true; this.hop = false;
+    // 起飞：向上冲量 + 沿朝向前向助推（起步加速，避免低速失速触地）
+    this.vel.y = 3.6;
+    this.vel.x += Math.sin(this.heading) * 2.8;
+    this.vel.z += Math.cos(this.heading) * 2.8;
+    this.flapPhase = 0;
+    Audio.flap(0.07); Audio.chirp();
+  }
+  startle(){
+    if(this.grounded){ this.vel.y = 1.5; this.grounded = false; this.hop = true; }
+    Audio.chirp(true);
+  }
+  peck(){ this.peckT = 0; }
+  beakWorld(v){ return this.beak.getWorldPosition(v); }
+
+  update(dt){
+    const inputOn = Game.state === 'playing';
+    const pos = this.group.position;
+
+    /* --- 输入方向（相对相机） --- */
+    const ix = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+    const iz = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+    const cy = Rig.totalYaw;
+    const fx = Math.sin(cy), fz = Math.cos(cy);
+    let wx = fx * iz + (-fz) * ix, wz = fz * iz + fx * ix;
+    const wl = Math.hypot(wx, wz);
+    if(wl > 0){ wx /= wl; wz /= wl; }
+    const hasInput = inputOn && wl > 0;
+
+    if(this.grounded){
+      /* --- 地面行走 --- */
+      if(hasInput){
+        this.heading = dampAngle(this.heading, Math.atan2(wx, wz), 10, dt);
+        pos.x += Math.sin(this.heading) * 2.0 * dt;
+        pos.z += Math.cos(this.heading) * 2.0 * dt;
+        this.walkPhase += dt * 9;
+        this.moving = true;
+      }else this.moving = false;
+    }else{
+      if(this.flying){
+        /* --- 飞行物理：推力 + 升力(与水平速度相关) + 重力 + 阻力 --- */
+        if(inputOn){
+          const turn = (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0);
+          this.heading += turn * 2.3 * dt;
+          this.bank += (-turn * 0.5 - this.bank) * Math.min(1, dt * 5);
+          if(iz > 0){
+            this.vel.x += Math.sin(this.heading) * 10 * dt;
+            this.vel.z += Math.cos(this.heading) * 10 * dt;
+          }else if(iz < 0){
+            this.vel.x *= 1 - 2.2 * dt; this.vel.z *= 1 - 2.2 * dt;
+          }
+          if(keys.has('ShiftLeft') || keys.has('ShiftRight')) this.vel.y += 5.2 * dt;
+          if(keys.has('ControlLeft') || keys.has('ControlRight')) this.vel.y -= 5.0 * dt;
+        }else this.bank *= 1 - 3 * dt;
+        const hs = Math.hypot(this.vel.x, this.vel.z);
+        // 升力：与水平速度相关，带最低扑翼升力，保证巡航可悬停爬升
+        this.vel.y += clamp(hs * 1.1, 3.5, 9) * dt;
+        this.vel.y -= 7.5 * dt;                      // 重力
+        this.vel.x *= 1 - 0.5 * dt; this.vel.z *= 1 - 0.5 * dt;
+        const hs2 = Math.hypot(this.vel.x, this.vel.z);
+        if(hs2 > 9.5){ const s = 9.5 / hs2; this.vel.x *= s; this.vel.z *= s; }
+        this.vel.y = clamp(this.vel.y, -8.5, 7.5);
+        const hs3 = Math.hypot(this.vel.x, this.vel.z);
+        if(hs3 > 0.6) this.heading = dampAngle(this.heading, Math.atan2(this.vel.x, this.vel.z), 4, dt);
+        this.speed = hs3;
+        this.moving = hs3 > 0.5;
+      }else{
+        /* --- 下落 / 小跳（全重力） --- */
+        this.vel.y -= 9.0 * dt;
+        this.moving = false;
+        if(this.hop && hasInput){
+          pos.x += Math.sin(this.heading) * 1.8 * dt;
+          pos.z += Math.cos(this.heading) * 1.8 * dt;
+        }
+      }
+      pos.addScaledVector(this.vel, dt);
+      if(pos.y >= 24){ pos.y = 24; this.vel.y = Math.min(this.vel.y, 0); }
+      if(pos.y <= 0){ pos.y = 0; this.land(); }
+    }
+    pos.x = clamp(pos.x, -42.5, 42.5);
+    pos.z = clamp(pos.z, -42.5, 42.5);
+    this._anim(dt);
+  }
+  land(){
+    const wasFlying = this.flying;
+    this.grounded = true; this.flying = false; this.hop = false;
+    if(wasFlying){
+      this.vel.x *= 0.22; this.vel.z *= 0.22;        // 落地减速
+      Particles.dust(this.group.position);
+      Audio.flap(0.05);
+    }
+    this.vel.y = 0;
+  }
+  _anim(dt){
+    this.group.rotation.y = this.heading;
+    const airborne = !this.grounded;
+
+    /* 翅膀：折叠 <-> 振翅混合 */
+    this.wingMix += ((airborne ? 1 : 0) - this.wingMix) * Math.min(1, dt * 6);
+    let flapA;
+    if(this.flying){
+      this.flapPhase += dt * (9 + this.speed * 0.55);
+      const glide = this.vel.y < -0.5 && this.speed > 6;
+      flapA = Math.sin(this.flapPhase) * (glide ? 0.3 : 0.95);
+      if(Math.sin(this.flapPhase) > 0.96) Audio.flap(0.028);
+    }else if(airborne){
+      this.flapPhase += dt * 4;
+      flapA = Math.sin(this.flapPhase) * 0.35;
+    }else flapA = -0.12;
+    const a = lerp(-0.12, flapA, this.wingMix);
+    const sweep = lerp(0.95, 0.15, this.wingMix);
+    this.wingR.rotation.z = a;  this.wingL.rotation.z = -a;
+    this.wingR.rotation.y = sweep; this.wingL.rotation.y = -sweep;
+
+    /* 腿：行走摆动 / 飞行后收 */
+    const swing = Math.sin(this.walkPhase) * (this.moving ? 0.7 : 0);
+    this.legL.rotation.x = lerp(swing, -1.25, this.wingMix);
+    this.legR.rotation.x = lerp(-swing, -1.25, this.wingMix);
+
+    /* 俯仰 + 侧倾 + 啄食低头 */
+    let peckDip = 0;
+    if(this.peckT >= 0){
+      this.peckT += dt;
+      if(this.peckT < 0.6) peckDip = Math.abs(Math.sin(this.peckT * 10)) * 0.5 * (1 - this.peckT / 0.6);
+      else this.peckT = -1;
+    }
+    const pitch = airborne ? clamp(-this.vel.y * 0.055, -0.45, 0.5) : 0;
+    const tp = pitch + peckDip + (this.grounded && this.moving ? 0.06 : 0);
+    this.body.rotation.x += (tp - this.body.rotation.x) * Math.min(1, dt * 8);
+    this.body.rotation.z += (this.bank - this.body.rotation.z) * Math.min(1, dt * 5);
+    const bobY = this.grounded && this.moving ? Math.abs(Math.sin(this.walkPhase)) * 0.016 : 0;
+    this.body.position.y += (bobY - this.body.position.y) * Math.min(1, dt * 8);
+  }
+}
+
+/* =====================================================================
+ * §9 相机 rig —— 第三人称跟随，右键拖拽旋转，滚轮缩放
+ * ===================================================================== */
+class CameraRig {
+  constructor(camera, bird){
+    this.cam = camera; this.bird = bird;
+    this.baseYaw = bird.heading; this.userYaw = 0;
+    this.userPitch = 0; this.pitchBase = 0.3;
+    this.dist = 4.2; this.orbiting = false;
+    this.totalYaw = this.baseYaw;
+    this.pos = new THREE.Vector3(-16, 2, -2);
+    this.look = new THREE.Vector3(-16, 0.3, 2);
+    this._last = { x: null, y: null };
+  }
+  update(dt){
+    const b = this.bird.group.position;
+    const moving = (this.bird.moving || this.bird.isFlying) && !this.orbiting;
+    if(moving){
+      this.baseYaw = dampAngle(this.baseYaw, this.bird.heading, 2.2, dt);
+      this.userYaw *= Math.exp(-1.4 * dt);
+    }
+    this.totalYaw = this.baseYaw + this.userYaw;
+    const pitch = clamp(this.pitchBase + this.userPitch, 0.08, 1.15);
+    const horiz = this.dist * Math.cos(pitch), vert = this.dist * Math.sin(pitch);
+    _v1.set(
+      b.x - Math.sin(this.totalYaw) * horiz,
+      b.y + 0.25 + vert,
+      b.z - Math.cos(this.totalYaw) * horiz
+    );
+    if(_v1.y < 0.35) _v1.y = 0.35;
+    this.pos.lerp(_v1, 1 - Math.exp(-7 * dt));
+    this.cam.position.copy(this.pos);
+    _v2.set(b.x, b.y + 0.28, b.z);
+    this.look.lerp(_v2, 1 - Math.exp(-10 * dt));
+    this.cam.lookAt(this.look);
+  }
+}
+
+/* =====================================================================
+ * §10 蚯蚓系统 —— 仅在湿润草地刷新；鼠标拖拽拽出；缩回/被吃后定时刷新
+ * ===================================================================== */
+class WormSystem {
+  constructor(scene, proto){
+    this.scene = scene;
+    this.proto = proto;
+    this.worms = [];
+    this.drag = null;
+    this.fly = null;
+    for(let i = 0; i < DBG.wormMaxCount; i++){
+      const g = proto.clone(true);
+      g.visible = false;
+      scene.add(g);
+      this.worms.push({
+        group: g, body: findDeep(g, 'body'),
+        state: 'hidden', timer: 0.5 + i * 1.4,
+        seed: Math.random() * 10, grabbed: false, hoverT: 0
+      });
+    }
+  }
+  /** 在湿润草地内随机采样（避开石板路与树林） */
+  _sample(){
+    for(let i = 0; i < 40; i++){
+      const z = World.zones[Math.floor(Math.random() * World.zones.length)];
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (z.r - 0.6);
+      const x = z.x + Math.cos(a) * r, zz = z.z + Math.sin(a) * r;
+      const nearPath = World.pathPts.some(q => Math.hypot(q.x - x, q.z - zz) < 1.2);
+      if(nearPath) continue;
+      return _v3.set(x, 0, zz);
+    }
+    return _v3.set(World.zones[0].x, 0, World.zones[0].z);
+  }
+  _screenPos(w, out){
+    _v1.copy(w.group.position); _v1.y += 0.12;
+    _v1.project(camera);
+    out.x = (_v1.x + 1) / 2 * innerWidth;
+    out.y = (-_v1.y + 1) / 2 * innerHeight;
+    out.front = _v1.z < 1;
+    return out;
+  }
+  /** 左键按下时尝试抓取蚯蚓（屏幕空间最近者） */
+  tryStartDrag(){
+    if(Game.state !== 'playing' || this.drag) return false;
+    let best = null, bd = 46;
+    const sp = { x: 0, y: 0, front: false };
+    for(const w of this.worms){
+      if(w.state !== 'active' || w.grabbed) continue;
+      this._screenPos(w, sp);
+      if(!sp.front) continue;
+      const d = Math.hypot(mouse.px - sp.x, mouse.py - sp.y);
+      if(d < bd){ bd = d; best = w; }
+    }
+    if(!best) return false;
+    best.grabbed = true;
+    this.drag = { w: best, prog: 0 };
+    return true;
+  }
+  /** 松开左键：拉满则拽出，否则缩回 */
+  endDrag(){
+    if(!this.drag) return;
+    const { w, prog } = this.drag;
+    this.drag = null; w.grabbed = false;
+    UI.hideWormProgress();
+    if(prog >= 1) this._extract(w);
+    else{
+      w.state = 'retracting'; w.animT = 0;
+      if(prog > 0.05) UI.toast('蚯蚓缩回了土里…');
+    }
+  }
+  cancelDrag(){
+    if(!this.drag) return;
+    this.drag.w.grabbed = false;
+    this.drag = null;
+    UI.hideWormProgress();
+  }
+  _extract(w){
+    w.state = 'hidden';
+    w.group.visible = false;
+    w.timer = DBG.wormRespawnSec * rand(0.8, 1.35);
+    const mesh = findDeep(this.proto, 'body').clone();
+    mesh.scale.y = 0.5; mesh.rotation.z = Math.PI / 2;   // 横向被叼起
+    mesh.position.copy(w.group.position); mesh.position.y = 0.1;
+    this.scene.add(mesh);
+    this.fly = { mesh, from: mesh.position.clone(), t: 0 };
+  }
+  update(dt){
+    const sp = { x: 0, y: 0, front: false };
+    /* 悬停高亮 */
+    let hoverBest = null;
+    if(Game.state === 'playing' && !this.drag){
+      let bd = 46;
+      for(const w of this.worms){
+        if(w.state !== 'active') continue;
+        this._screenPos(w, sp);
+        if(!sp.front) continue;
+        const d = Math.hypot(mouse.px - sp.x, mouse.py - sp.y);
+        if(d < bd){ bd = d; hoverBest = w; }
+      }
+    }
+    renderer.domElement.style.cursor = hoverBest ? 'pointer' : 'default';
+
+    for(const w of this.worms){
+      w.hoverT += ((w === hoverBest ? 1 : 0) - w.hoverT) * Math.min(1, dt * 10);
+      w.group.scale.setScalar(1 + 0.18 * w.hoverT);
+
+      if(this.drag && this.drag.w === w){
+        /* --- 拖拽中：越拖越长、向拖拽方向倾倒 --- */
+        this._screenPos(w, sp);
+        const distPx = Math.hypot(mouse.px - sp.x, mouse.py - sp.y);
+        const th = DBG.wormDragScreenRatio * Math.min(innerWidth, innerHeight);
+        const prog = clamp(distPx / th, 0, 1);
+        this.drag.prog = prog;
+        w.body.scale.y = 0.07 + prog * 0.43;
+        raycaster.setFromCamera(mouse, camera);
+        if(raycaster.ray.intersectPlane(groundPlane, _v1)){
+          _v2.set(_v1.x - w.group.position.x, 0, _v1.z - w.group.position.z);
+          const l = _v2.length();
+          if(l > 0.05){
+            _v2.divideScalar(l);
+            w.group.rotation.order = 'YXZ';
+            w.group.rotation.y = Math.atan2(_v2.x, _v2.z);
+            w.group.rotation.x = prog * 1.1;
+          }
+        }
+        w.body.rotation.z = Math.sin(performance.now() * 0.001 * (8 + prog * 20) + w.seed) * 0.25 * (0.3 + prog);
+        UI.wormProgress(sp.x, sp.y, prog);
+      }
+      else if(w.state === 'active'){
+        w.body.scale.y += (0.07 - w.body.scale.y) * Math.min(1, dt * 6);
+        w.group.rotation.x += (0 - w.group.rotation.x) * Math.min(1, dt * 8);
+        w.body.rotation.z = Math.sin(performance.now() * 0.002 + w.seed) * 0.12;
+      }
+      else if(w.state === 'retracting'){
+        w.animT += dt * 3.2;
+        w.body.scale.y = Math.max(0.01, w.body.scale.y * (1 - w.animT * dt * 6));
+        if(w.animT > 0.6){
+          w.state = 'hidden'; w.group.visible = false;
+          w.timer = DBG.wormRespawnSec * rand(0.8, 1.35);
+          w.body.scale.y = 0.07; w.group.rotation.x = 0;
+        }
+      }
+      else if(w.state === 'hidden'){
+        w.timer -= dt;
+        if(w.timer <= 0){
+          const p = this._sample();
+          w.group.position.set(p.x, 0, p.z);
+          w.group.rotation.set(0, Math.random() * Math.PI * 2, 0);
+          w.body.scale.y = 0.07;
+          w.state = 'active'; w.group.visible = true;
+        }
+      }
+    }
+
+    /* --- 被拽出的蚯蚓飞向鸟喙 --- */
+    if(this.fly){
+      const f = this.fly;
+      f.t += dt / 0.7;
+      const e = easeInOut(clamp(f.t, 0, 1));
+      Bird.beakWorld(_v1);
+      _v2.lerpVectors(f.from, _v1, e);
+      _v2.y += Math.sin(Math.PI * e) * 1.1;
+      f.mesh.position.copy(_v2);
+      f.mesh.rotation.x += dt * 9;
+      if(f.t >= 1){
+        this.scene.remove(f.mesh);
+        this.fly = null;
+        Bird.peck();
+        Audio.peck();
+        Particles.sparkle(_v1);
+        Game.addGrowth(DBG.growthPerWorm);
+        UI.toast(`+${DBG.growthPerWorm} 成长值`);
+      }
+    }
+  }
+  resetAll(){
+    this.cancelDrag();
+    if(this.fly){ this.scene.remove(this.fly.mesh); this.fly = null; }
+    this.worms.forEach((w, i) => {
+      w.state = 'hidden'; w.timer = 0.5 + i * 1.2;
+      w.group.visible = false; w.grabbed = false;
+      w.body.scale.y = 0.07; w.group.rotation.x = 0;
+    });
+  }
+}
+
+/* =====================================================================
+ * §11 两脚兽（行人）系统 —— 只走石板路；定时生成；靠近惊吓
+ * ===================================================================== */
+const PALETTES = {
+  jacket: [0x2f3b52, 0x50565e, 0x5a4632, 0x62424a, 0x39504a, 0x66613b, 0x8a4a3a],
+  pants:  [0x2b2f38, 0x3c3a35, 0x4a4238, 0x30363e],
+  hair:   [0x1c1a17, 0x4a3624, 0x6e6259, 0x8a8378],
+  skin:   [0xe8c39e, 0xd9b08c, 0xc99a76, 0xf0d0b0]
+};
+class PedestrianSystem {
+  constructor(scene, proto){
+    this.scene = scene; this.proto = proto;
+    this.list = [];
+    this._hatGeo = new THREE.SphereGeometry(0.078, 8, 6);
+  }
+  spawn(){
+    if(this.list.length >= DBG.pedestrianMaxAlive) return;
+    const g = this.proto.clone(true);
+    /* 随机换装：按材质 name 克隆并重新着色 */
+    const mats = {};
+    g.traverse(o => {
+      if(o.isMesh){
+        const n = o.material ? o.material.name : '';
+        if(PALETTES[n]){
+          if(!mats[n]){
+            mats[n] = o.material.clone();
+            mats[n].name = n;
+            const pal = PALETTES[n];
+            mats[n].color.setHex(pal[Math.floor(Math.random() * pal.length)]);
+          }
+          o.material = mats[n];
+        }
+        o.castShadow = true;
+      }
+    });
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const p = {
+      group: g, dir,
+      t: dir > 0 ? 0.002 : 0.998,
+      lane: rand(-0.42, 0.42),
+      speed: DBG.pedestrianWalkSpeed * rand(0.9, 1.12),
+      phase: rand(0, 6), walkMix: 0, reactMix: 0,
+      scareT: 0, pause: 0, hat: null, hatT: 0
+    };
+    g.scale.setScalar(rand(0.93, 1.07));
+    p.legL = findDeep(g, 'legL'); p.legR = findDeep(g, 'legR');
+    p.armL = findDeep(g, 'armL'); p.armR = findDeep(g, 'armR');
+    p.body = findDeep(g, 'body'); p.headG = findDeep(g, 'headG');
+    this.list.push(p);
+    this.scene.add(g);
+  }
+  _despawn(p){
+    this.scene.remove(p.group);
+    this.list.splice(this.list.indexOf(p), 1);
+  }
+  /** 被命中：暂停 + 举手 + 头顶白色残留 */
+  applyHit(p){
+    p.pause = 1.15;
+    if(!p.hat){
+      p.hat = new THREE.Mesh(this._hatGeo, new THREE.MeshStandardMaterial({
+        color: 0xf4f6f0, roughness: 0.3, transparent: true, opacity: 0.95
+      }));
+      p.hat.scale.set(1, 0.4, 1);
+      p.hat.position.y = 0.1;
+      p.headG.add(p.hat);
+    }
+    p.hatT = 6; p.hat.visible = true;
+    Game.addScare(-DBG.scarePerHitReduce);
+    UI.toast('命中！惊吓值 -5');
+    Audio.splat();
+    Particles.splash(_v1.set(p.group.position.x, 1.65 * p.group.scale.y, p.group.position.z), 26);
+  }
+  hitTest(pos){
+    // 宽松的人形命中盒：水平半径 0.75m、高 2.05m
+    for(const p of this.list){
+      const dx = pos.x - p.group.position.x, dz = pos.z - p.group.position.z;
+      if(dx*dx + dz*dz < 0.75*0.75 && pos.y < 2.05 * p.group.scale.y) return p;
+    }
+    return null;
+  }
+  update(dt){
+    for(let i = this.list.length - 1; i >= 0; i--){
+      const p = this.list[i];
+      p.scareT = Math.max(0, p.scareT - dt);
+      p.pause = Math.max(0, p.pause - dt);
+      const moving = p.pause <= 0 && Game.state === 'playing';
+      p.walkMix += ((moving ? 1 : 0) - p.walkMix) * Math.min(1, dt * 6);
+
+      if(moving){
+        p.t += p.dir * p.speed * dt / World.pathLen;
+        p.phase += p.speed * dt * 3.4;
+      }
+      if(p.t <= 0 || p.t >= 1){ this._despawn(p); continue; }
+
+      const pos = World.curve.getPointAt(clamp(p.t, 0, 1));
+      const tan = World.curve.getTangentAt(clamp(p.t, 0, 1));
+      const nx = -tan.z, nz = tan.x;                    // 法线方向 → 横向车道偏移
+      p.group.position.set(pos.x + nx * p.lane, 0, pos.z + nz * p.lane);
+      const face = p.dir > 0 ? Math.atan2(tan.x, tan.z) : Math.atan2(-tan.x, -tan.z);
+      p.group.rotation.y = dampAngle(p.group.rotation.y, face, 8, dt);
+
+      /* 行走动画（受击/惊吓时抬手护头，手臂向外张开避免在胸前交叉成带） */
+      const s = Math.sin(p.phase);
+      p.legL.rotation.x = s * 0.55 * p.walkMix;
+      p.legR.rotation.x = -s * 0.55 * p.walkMix;
+      const armUp = p.pause > 0 ? 1 : 0;
+      p.reactMix += (armUp - p.reactMix) * Math.min(1, dt * 8);   // 反应姿态平滑过渡
+      const rm = p.reactMix;
+      p.armL.rotation.x = lerp(-s * 0.45 * p.walkMix, -2.75, rm);
+      p.armR.rotation.x = lerp(s * 0.45 * p.walkMix, -2.75, rm);
+      p.armL.rotation.z = -0.62 * rm;    // 左臂向左外侧张开
+      p.armR.rotation.z = 0.62 * rm;     // 右臂向右外侧张开
+      p.body.position.y = Math.abs(s) * 0.028 * p.walkMix;
+      p.headG.rotation.x = lerp(p.headG.rotation.x, p.pause > 0 ? -0.5 : 0, Math.min(1, dt * 6));
+
+      /* 头顶残留淡出 */
+      if(p.hat && p.hatT > 0){
+        p.hatT -= dt;
+        p.hat.material.opacity = clamp(p.hatT / 2, 0, 0.95);
+        if(p.hatT <= 0) p.hat.visible = false;
+      }
+
+      /* 惊吓判定：乌鸫靠太近 */
+      if(Game.state === 'playing' && p.scareT <= 0){
+        _v1.set(p.group.position.x, 1.0, p.group.position.z);
+        if(Bird.group.position.distanceTo(_v1) < DBG.scareRadius){
+          p.scareT = DBG.scareRetriggerSec;
+          Game.addScare(DBG.scarePerProximity);
+          Bird.startle();
+        }
+      }
+    }
+  }
+  clear(){ while(this.list.length) this._despawn(this.list[0]); }
+}
+
+/* =====================================================================
+ * §12 投射物系统 —— 仅飞行状态可发射；白色液态 + 粒子尾迹
+ * ===================================================================== */
+class ProjectileSystem {
+  constructor(scene){
+    this.scene = scene;
+    this.list = [];
+    const geo = new THREE.SphereGeometry(0.05, 8, 6);
+    geo.scale(1, 1.7, 1);
+    this.geo = geo;
+    this.mat = new THREE.MeshStandardMaterial({ color: 0xf4f7f2, roughness: 0.25 });
+  }
+  fire(){
+    if(!Bird.isFlying || Game.skillCd > 0) return;
+    Game.skillCd = DBG.projectileCooldownSec;
+    Game.lastCdMax = DBG.projectileCooldownSec;
+    raycaster.setFromCamera(mouse, camera);
+    // 瞄准点取视线前方 14m（常见交战距离），减少抛物线下坠导致的过顶
+    const target = raycaster.ray.at(14, new THREE.Vector3());
+    const origin = Bird.group.position.clone(); origin.y += 0.06;
+    const dir = target.sub(origin).normalize();
+    const m = new THREE.Mesh(this.geo, this.mat);
+    m.position.copy(origin);
+    m.quaternion.setFromUnitVectors(_v1.set(0, 1, 0), dir);
+    this.scene.add(m);
+    this.list.push({ mesh: m, vel: dir.clone().multiplyScalar(DBG.projectileSpeed), life: 4.5, trailT: 0 });
+    Audio.spit();
+  }
+  update(dt){
+    for(let i = this.list.length - 1; i >= 0; i--){
+      const pr = this.list[i];
+      pr.life -= dt;
+      pr.vel.y -= 5.5 * dt;                         // 抛物线
+      pr.mesh.position.addScaledVector(pr.vel, dt);
+      pr.trailT -= dt;
+      if(pr.trailT <= 0){ Particles.trail(pr.mesh.position); pr.trailT = 0.024; }
+
+      const hit = Peds.hitTest(pr.mesh.position);
+      if(hit){
+        Peds.applyHit(hit);
+        Particles.splash(pr.mesh.position, 26);
+        this._kill(i); continue;
+      }
+      if(pr.mesh.position.y <= 0.02){
+        Splats.spawn(pr.mesh.position);
+        Particles.splash(pr.mesh.position, 14);
+        Audio.splat();
+        this._kill(i); continue;
+      }
+      if(pr.life <= 0) this._kill(i);
+    }
+  }
+  _kill(i){
+    this.scene.remove(this.list[i].mesh);
+    this.list.splice(i, 1);
+  }
+  clear(){ while(this.list.length) this._kill(0); }
+}
+
+/* =====================================================================
+ * §13 游戏主控 —— 状态机 / 成长与惊吓 / 高分存储 / 输入 / 主循环
+ * ===================================================================== */
+const BEST_KEY = 'blackbird_life_best';
+
+class GameController {
+  constructor(){
+    this.state = 'start';                 // start | playing | over
+    this.growth = 0;
+    this.scare = 0;
+    this.best = 0;
+    try{ this.best = parseFloat(localStorage.getItem(BEST_KEY)) || 0; }catch(e){}
+    this._recordToasted = false;
+    this.skillCd = 0; this.lastCdMax = 1;
+    this.pedTimer = DBG.pedestrianFirstSpawnDelaySec;
+    this.chirpTimer = 5;
+    this.lastScareToast = -9;
+    this.time = 0;
+  }
+  start(){
+    this.state = 'playing';
+    Audio.init();
+    UI.startScreen.style.display = 'none';
+    UI.toast('在深绿色湿润草地里找蚯蚓吧！', 2.6);
+  }
+  addGrowth(v){
+    if(this.state !== 'playing') return;
+    this.growth += v;
+    if(this.growth > this.best){
+      this.best = this.growth;
+      try{ localStorage.setItem(BEST_KEY, String(this.best)); }catch(e){}
+      UI.setBest(this.best);
+      if(!this._recordToasted && this.best > 0){
+        this._recordToasted = true;
+        UI.toast('★ 超越历史记录！');
+      }
+    }
+  }
+  addScare(v, why){
+    if(this.state !== 'playing') return;
+    this.scare = clamp(this.scare + v, 0, DBG.scareMax);
+    if(v > 0){
+      const now = performance.now() * 0.001;
+      if(why !== 'debug' && now - this.lastScareToast > 1.5){
+        this.lastScareToast = now;
+        UI.toast('惊吓值 +5 · 离两脚兽远点！');
+      }
+      Audio.sting();
+    }
+    if(this.scare >= DBG.scareMax) this.gameOver();
+  }
+  gameOver(){
+    this.state = 'over';
+    Worms.cancelDrag();
+    UI.hideWormProgress();
+    const isNew = this.growth >= this.best && this.growth > 0;
+    try{ localStorage.setItem(BEST_KEY, String(Math.max(this.best, this.growth))); }catch(e){}
+    UI.showOver(this.growth, Math.max(this.best, this.growth), isNew);
+    Audio.gameover();
+  }
+  reset(){
+    this.growth = 0; this.scare = 0;
+    this.skillCd = 0;
+    this.pedTimer = DBG.pedestrianFirstSpawnDelaySec;
+    this._recordToasted = false;
+    Bird.reset();
+    Peds.clear();
+    Projectiles.clear();
+    Splats.clear();
+    Worms.resetAll();
+    UI.hideOver();
+    this.state = 'playing';
+    UI.toast('新的一局，加油小乌鸫！', 2);
+  }
+  update(dt){
+    this.time += dt;
+    if(this.state === 'playing'){
+      this.pedTimer -= dt;
+      if(this.pedTimer <= 0){
+        Peds.spawn();
+        this.pedTimer = DBG.pedestrianSpawnIntervalSec;
+      }
+      this.chirpTimer -= dt;
+      if(this.chirpTimer <= 0){
+        Audio.chirp();
+        this.chirpTimer = rand(9, 22);
+      }
+    }else if(this.state === 'over'){
+      Rig.userYaw += dt * 0.22;            // 结束镜头缓慢环绕
+    }
+    this.skillCd = Math.max(0, this.skillCd - dt);
+  }
+}
+
+/* ---------------- 输入绑定 ---------------- */
+function bindInputs(){
+  const cv = renderer.domElement;
+  window.addEventListener('keydown', e => {
+    if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+    if(e.repeat) return;
+    keys.add(e.code);
+    if(e.code === 'Space') Bird.onSpace();
+    if(e.code === 'ShiftLeft' || e.code === 'ShiftRight') Bird.onHopKey();
+    if(e.code === 'KeyM'){ const m = Audio.toggleMute(); UI.toast(m ? '已静音' : '声音开启', 1); }
+    if(e.code === 'KeyH') UI.toggleHint();
+  });
+  window.addEventListener('keyup', e => keys.delete(e.code));
+
+  cv.addEventListener('mousedown', e => {
+    if(Game.state !== 'playing') return;
+    if(e.button === 0){
+      if(!Worms.tryStartDrag()) Projectiles.fire();   // 点蚯蚓→拖拽；否则→发射
+    }else if(e.button === 2){
+      Rig.orbiting = true;
+      Rig._last.x = e.clientX; Rig._last.y = e.clientY;
+    }
+  });
+  window.addEventListener('mouseup', e => {
+    if(e.button === 0) Worms.endDrag();
+    if(e.button === 2) Rig.orbiting = false;
+  });
+  window.addEventListener('mousemove', e => {
+    mouse.px = e.clientX; mouse.py = e.clientY;
+    mouse.x = (e.clientX / innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+    if(Rig && Rig.orbiting){
+      if(Rig._last.x !== null){
+        Rig.userYaw   -= (e.clientX - Rig._last.x) * 0.0045;
+        Rig.userPitch  = clamp(Rig.userPitch + (e.clientY - Rig._last.y) * 0.003, -0.45, 0.75);
+      }
+      Rig._last.x = e.clientX; Rig._last.y = e.clientY;
+    }else if(Rig) Rig._last.x = null;
+  });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('wheel', e => {
+    if(Rig) Rig.dist = clamp(Rig.dist * (1 + e.deltaY * 0.0009), 2.2, 9);
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+/* ---------------- 主循环 ---------------- */
+const clock = new THREE.Clock();
+let fpsAcc = 0, fpsN = 0, fpsT = 0;
+function tick(){
+  const raw = Math.min(clock.getDelta(), 0.05);
+  const dt = raw * DBG.timeScale;
+
+  Wind.update(dt);
+  Game.update(dt);
+  Bird.update(dt);
+  Rig.update(dt);
+  Peds.update(dt);
+  Worms.update(dt);
+  Projectiles.update(dt);
+  Particles.update(dt);
+  Splats.update(dt);
+
+  /* 云缓慢漂移 */
+  for(const c of World.clouds){
+    c.position.x += dt * 0.6;
+    if(c.position.x > 130) c.position.x = -130;
+  }
+
+  /* HUD */
+  UI.setBars(Game.growth, Game.scare, DBG.scareMax);
+  UI.setSkill(Game.skillCd, Game.lastCdMax, Game.skillCd <= 0, Bird.isFlying);
+  UI.crosshair(mouse.px, mouse.py, Game.state === 'playing' && Bird.isFlying);
+
+  if(DBG.showStatsOverlay){
+    UI.fpsEl.style.display = 'block';
+    fpsAcc += 1 / Math.max(raw, 1e-4); fpsN++; fpsT += raw;
+    if(fpsT > 0.5){ UI.fpsEl.textContent = `FPS ${Math.round(fpsAcc / fpsN)}`; fpsAcc = fpsN = fpsT = 0; }
+  }else UI.fpsEl.style.display = 'none';
+
+  renderer.render(scene, camera);
+}
+
+/* ---------------- 启动 ---------------- */
+async function main(){
+  UI = new UIManager();
+  UI.setBest(parseFloat(localStorage.getItem(BEST_KEY)) || 0);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.02;
+  document.body.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.05, 500);
+  camera.position.set(-16, 2, -2);
+
+  Audio = new AudioManager();
+
+  /* 模型经 GLTF 管线生成（导出 GLB -> GLTFLoader 读回） */
+  MODELS = {
+    bird:     await gltfRoundtrip(Factory.blackbird()),
+    human:    await gltfRoundtrip(Factory.human()),
+    worm:     await gltfRoundtrip(Factory.worm()),
+    treeRound:await gltfRoundtrip(Factory.treeRound()),
+    treePine: await gltfRoundtrip(Factory.treePine()),
+    bench:    await gltfRoundtrip(Factory.bench()),
+    lamp:     await gltfRoundtrip(Factory.lamp())
+  };
+
+  World  = buildWorld(scene);
+  Particles = new ParticleSystem(scene);
+  Splats = new SplatPool(scene);
+  Bird   = new BirdPlayer(scene, MODELS.bird);
+  Rig    = new CameraRig(camera, Bird);
+  Worms  = new WormSystem(scene, MODELS.worm);
+  Peds   = new PedestrianSystem(scene, MODELS.human);
+  Projectiles = new ProjectileSystem(scene);
+  Game   = new GameController();
+
+  window.__gameRef = { game: Game, bird: Bird, peds: Peds, worms: Worms, projectiles: Projectiles, world: World, camera, scene };
+
+  bindInputs();
+  UI.startBtn.addEventListener('click', () => Game.start());
+  UI.restartBtn.addEventListener('click', () => Game.reset());
+
+  UI.setStartReady();
+  window.__booted = true;
+  // 启动成功后确保隐藏 CDN 看门狗错误遮罩（慢网络下它可能先弹出）
+  const _bootErr = document.getElementById('bootError');
+  if(_bootErr) _bootErr.style.display = 'none';
+  renderer.setAnimationLoop(tick);
+  console.log(
+    '%c《乌鸫的生活》已启动\n' +
+    '控制台调试：GAME_DEBUG.print() 查看参数；直接赋值实时生效，例如\n' +
+    '  GAME_DEBUG.pedestrianSpawnIntervalSec = 30   // 行人生成间隔(秒)\n' +
+    '  GAME_DEBUG.scareRadius = 6                   // 惊吓判定半径\n' +
+    '  GAME_DEBUG.spawnPedestrianNow()              // 立刻生成一名行人\n' +
+    '  GAME_DEBUG.showStatsOverlay = true           // 显示 FPS',
+    'color:#7fd48a'
+  );
+}
+
+main().catch(err => {
+  console.error(err);
+  const d = document.getElementById('bootError');
+  if(d){ d.style.display = 'flex'; d.textContent = '初始化失败：' + err.message; }
+});
+</script>
+</body>
+</html>
