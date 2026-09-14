@@ -1,0 +1,1706 @@
+<!--
+  夜鹭钓鱼 · 单文件 3D 小游戏（Three.js r128）
+  操作方式：WASD 移动 ｜ 鼠标瞄准 ｜ 按住蓄力，松开啄鱼
+  共 7 关：达到每关目标分数即可过关（第 1 关 500 分 / 10 分钟起，逐关递增）
+  作者：
+  运行：双击本文件（file://，需联网加载 Three.js CDN）或部署到任意静态服务器均可
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>夜鹭捕鱼 · 黄昏湖面</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; }
+  #fish-hud {
+    position: fixed; top: 12px; left: 14px; z-index: 5; pointer-events: none;
+    color: #ffe2b8; font: bold 17px/1.4 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    text-shadow: 0 1px 3px rgba(0,0,0,.6);
+  }
+  .score-pop {
+    position: fixed; z-index: 6; pointer-events: none;
+    transform: translate(-50%, -50%);
+    color: #ffd76a; font: bold 22px 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    text-shadow: 0 0 6px rgba(255,160,40,.8), 0 1px 2px #000;
+    animation: popRise 1s ease-out forwards;
+  }
+  #reach-tip {
+    position: fixed; z-index: 6; pointer-events: none; display: none;
+    transform: translate(-50%, -50%);
+    color: #ff6a55; font: bold 15px 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    text-shadow: 0 1px 2px #000;
+  }
+  @keyframes popRise {
+    0%   { opacity: 0; margin-top: 0; }
+    15%  { opacity: 1; }
+    100% { opacity: 0; margin-top: -46px; }
+  }
+  #goal-bar { width: 190px; height: 9px; border: 1px solid rgba(255,224,184,.7); border-radius: 5px; margin-top: 5px; overflow: hidden; }
+  #goal-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ffb54d, #ffe27a); border-radius: 4px; transition: width .25s; }
+  #level-panel { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; background: rgba(15,8,25,.55); }
+  #level-panel.show { display: flex; }
+  .panel-box { background: linear-gradient(160deg, rgba(60,35,80,.94), rgba(30,18,50,.94)); border: 2px solid #ffd9a0; border-radius: 14px; padding: 30px 52px; text-align: center; color: #ffe2b8; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
+  .panel-box h1 { margin: 0 0 14px; font-size: 30px; color: #ffd76a; }
+  .panel-box p { margin: 6px 0; font-size: 17px; }
+  .panel-btn { margin: 18px 8px 0; padding: 10px 26px; font-size: 16px; font-weight: bold; color: #3a2410; background: linear-gradient(180deg, #ffe27a, #ffb54d); border: none; border-radius: 8px; cursor: pointer; }
+  .panel-btn:hover { filter: brightness(1.1); }
+  /* 开始页面：黄昏渐变 + 半透明水面波纹 */
+  #start-screen { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #3b2a63 0%, #b4547a 46%, #ff9a4d 80%, #ffb066 100%);
+    transition: opacity .6s ease; }
+  #start-screen.hidden { opacity: 0; pointer-events: none; }
+  #start-screen .start-inner { text-align: center; position: relative; z-index: 2; }
+  #start-screen h1 { margin: 0; font-size: 84px; font-weight: 700; letter-spacing: 14px; text-indent: 14px;
+    color: #fff3dc; text-shadow: 0 0 26px rgba(255,180,90,.55), 0 4px 18px rgba(0,0,0,.35); }
+  #start-screen .sub { margin: 16px 0 46px; font-size: 20px; letter-spacing: 5px; color: #ffd9b0; }
+  #btn-start { font-size: 26px; font-weight: bold; letter-spacing: 6px; text-indent: 6px; padding: 16px 62px;
+    border-radius: 42px; border: 2px solid #ffe9c0; color: #4a2c10; cursor: pointer;
+    background: linear-gradient(180deg, #ffe9c0, #ffb45e);
+    box-shadow: 0 6px 26px rgba(255,150,60,.45); transition: transform .18s, box-shadow .18s, filter .18s; }
+  #btn-start:hover { transform: scale(1.08); filter: brightness(1.12); box-shadow: 0 10px 36px rgba(255,160,70,.65); }
+  #btn-start:active { transform: scale(1.02); }
+  #start-screen .howto { margin-top: 42px; font-size: 15px; letter-spacing: 2px; color: rgba(255,232,200,.85); }
+  #start-screen .waves { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; pointer-events: none;
+    background: repeating-linear-gradient(180deg, rgba(255,205,150,.10) 0 2px, rgba(255,160,90,.05) 2px 4px, transparent 4px 30px);
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 70%);
+    mask-image: linear-gradient(180deg, transparent, #000 70%);
+    animation: waveShift 8s linear infinite; }
+  #start-screen::after { content: ''; position: absolute; left: 50%; top: 16%; width: 340px; height: 340px;
+    transform: translateX(-50%); border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgba(255,220,150,.35) 0%, rgba(255,180,100,.12) 45%, transparent 70%); }
+  @keyframes waveShift { to { background-position: 0 30px; } }
+  /* 通关文字层：动画约 6 秒后从画面下方淡入 */
+  #victory-screen { position: fixed; inset: 0; z-index: 15; pointer-events: none; opacity: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+    padding-bottom: 6vh; transform: translateY(34px); transition: opacity 1.4s ease, transform 1.4s ease; }
+  #victory-screen.show { opacity: 1; transform: translateY(0); }
+  #victory-screen h1 { margin: 0; font-size: 58px; letter-spacing: 12px; color: #fff3dc;
+    text-shadow: 0 0 26px rgba(255,180,90,.6), 0 4px 16px rgba(0,0,0,.4); }
+  #victory-screen .v-sub { margin: 14px 0 8px; font-size: 20px; letter-spacing: 4px; color: #ffd9b0; }
+  #victory-screen .v-stats { margin: 4px 0 18px; font-size: 17px; color: rgba(255,232,200,.92); }
+  #victory-screen .panel-btn { pointer-events: auto; }
+  #mobile-controls { display: none; position: fixed; inset: 0; z-index: 12; pointer-events: none; }
+  #mobile-controls button { position: absolute; width: 58px; height: 58px; border: 1px solid rgba(255,238,205,.7); border-radius: 50%; background: rgba(48,31,62,.72); color: #fff3dc; font: 800 24px/1 sans-serif; box-shadow: 0 4px 16px rgba(0,0,0,.3); pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+  #mobile-controls button:active { background: rgba(255,190,90,.9); color: #40220f; transform: scale(.94); }
+  .move-left { left: 18px; bottom: 29px; }
+  .move-right { left: 142px; bottom: 29px; }
+  .move-up { left: 80px; bottom: 92px; }
+  .move-down { left: 80px; bottom: 12px; }
+  #mobile-strike { right: 24px; bottom: 30px; width: 82px !important; height: 82px !important; font-size: 17px !important; }
+  @media (hover: none), (pointer: coarse) { #mobile-controls { display: block; } }
+  @media (max-width: 760px) {
+    #fish-hud { font-size: 13px; }
+    #goal-bar { width: 130px; }
+    #start-screen h1 { font-size: 50px; letter-spacing: 8px; text-indent: 8px; }
+    #start-screen .sub { font-size: 15px; margin-bottom: 32px; }
+    #btn-start { font-size: 20px; padding: 13px 44px; }
+    .panel-box { padding: 20px 26px; }
+    .panel-box h1 { font-size: 22px; }
+    #victory-screen h1 { font-size: 36px; letter-spacing: 6px; }
+  }
+</style>
+</head>
+<body>
+<div id="fish-hud">
+  <div>第 <span id="level">1</span> 关 / 共 7 关 · 剩余 <span id="time">10:00</span></div>
+  <div>得分 <span id="score">0</span> / <span id="goal">500</span> · <span id="combo"></span></div>
+  <div id="goal-bar"><div id="goal-fill"></div></div>
+</div>
+<div id="level-panel">
+  <div class="panel-box">
+    <h1 id="panel-title"></h1>
+    <p id="panel-info"></p>
+    <div id="panel-btns"></div>
+  </div>
+</div>
+<div id="victory-screen">
+  <h1>恭喜通关！</h1>
+  <p class="v-sub">你是真正的捕鱼大师</p>
+  <p class="v-stats" id="victory-stats"></p>
+  <button id="btn-replay" class="panel-btn">再玩一次</button>
+</div>
+<div id="start-screen">
+  <div class="start-inner">
+    <h1>夜鹭捕鱼</h1>
+    <p class="sub">黄昏湖面，伸长脖子，啄起每一条鱼</p>
+    <button id="btn-start">开始游戏</button>
+    <p class="howto">电脑：WASD 移动、鼠标瞄准 ｜ 手机：方向键移动、滑动画面瞄准 ｜ 按住蓄力，松开捕鱼</p>
+  </div>
+  <div class="waves"></div>
+</div>
+<div id="reach-tip">够不到</div>
+<div id="mobile-controls" aria-label="手机游戏控制器">
+  <button class="move-left" data-move="l" aria-label="向左">◀</button>
+  <button class="move-right" data-move="r" aria-label="向右">▶</button>
+  <button class="move-up" data-move="f" aria-label="向前">▲</button>
+  <button class="move-down" data-move="b" aria-label="向后">▼</button>
+  <button id="mobile-strike" aria-label="按住蓄力捕鱼">捕鱼</button>
+</div>
+<!-- Three.js r128 随游戏一同部署，避免外部 CDN 不稳定导致黑屏 -->
+<script src="three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ---------- 场景：渲染器 / 相机 / 灯光 / 天空 / 湖床 / 沙洲 / 水面 / 芦苇 ----------
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0xd9764f, 22, 160); // 暖橙色雾气，与地平线颜色呼应
+
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+  // 第三人称固定机位：从侧后方俯看浅滩捕食区域
+  camera.position.set(8.5, 4.2, 9.5);
+  camera.lookAt(0.5, 0.5, 0.5);
+  const camOffset = new THREE.Vector3(8.5, 4.0, 9.5); // 第三人称跟随偏移（后上方）
+  const CAM_POS_T = new THREE.Vector3();
+  const LOOK_TMP = new THREE.Vector3();
+  const lookSm = new THREE.Vector3(0.5, 0.5, 0.5);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  document.body.appendChild(renderer.domElement);
+
+  // ---------- 光线：夕阳平行光 + 环境光 ----------
+  const sunLight = new THREE.DirectionalLight(0xffb066, 1.35); // 暖色夕阳
+  sunLight.position.set(-18, 7, -10); // 太阳挂在远处地平线上
+  scene.add(sunLight);
+
+  const ambient = new THREE.AmbientLight(0x6a5a8c, 0.7); // 偏紫的环境光补暗部（黄昏天空的反射）
+  scene.add(ambient);
+
+  // 夕阳本体：地平线上一个发光的太阳圆盘 + 光晕
+  const sunPos = new THREE.Vector3(-60, 8, -34);
+  const sun = new THREE.Mesh(
+    new THREE.SphereGeometry(4.5, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffd9a0, fog: false })
+  );
+  sun.position.copy(sunPos);
+  scene.add(sun);
+
+  function makeGlowTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(255,210,140,0.9)');
+    grad.addColorStop(0.35, 'rgba(255,150,80,0.4)');
+    grad.addColorStop(1, 'rgba(255,120,60,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+  const glowTex = makeGlowTexture();
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+  }));
+  glow.scale.set(40, 40, 1);
+  glow.position.copy(sunPos);
+  scene.add(glow);
+
+  // ---------- 天空：黄昏渐变穹顶（顶部紫 -> 中间玫红 -> 地平线暖橙） ----------
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      topColor:    { value: new THREE.Color(0x3b2a63) }, // 紫色天顶
+      midColor:    { value: new THREE.Color(0xb4547a) }, // 玫红过渡
+      botColor:    { value: new THREE.Color(0xff9a4d) }, // 地平线暖橙
+      sunDir:      { value: sunPos.clone().normalize() },
+      sunColor:    { value: new THREE.Color(0xffc27a) }
+    },
+    vertexShader: [
+      'varying vec3 vWorldPos;',
+      'void main() {',
+      '  vec4 wp = modelMatrix * vec4(position, 1.0);',
+      '  vWorldPos = wp.xyz;',
+      '  gl_Position = projectionMatrix * viewMatrix * wp;',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'uniform vec3 topColor, midColor, botColor, sunColor;',
+      'uniform vec3 sunDir;',
+      'varying vec3 vWorldPos;',
+      'void main() {',
+      '  vec3 dir = normalize(vWorldPos);',
+      '  float h = clamp(dir.y, -0.1, 1.0);',
+      '  vec3 col = mix(botColor, midColor, smoothstep(0.0, 0.35, h));',
+      '  col = mix(col, topColor, smoothstep(0.3, 0.9, h));',
+      // 太阳方向的暖色光晕染亮地平线
+      '  float sunGlow = pow(max(dot(dir, normalize(sunDir)), 0.0), 6.0);',
+      '  col = mix(col, sunColor, sunGlow * 0.55);',
+      '  gl_FragColor = vec4(col, 1.0);',
+      '}'
+    ].join('\n')
+  });
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(300, 32, 20), skyMat));
+
+  // ---------- 湖床（水下的深色底，透过半透明水面可见） ----------
+  const bed = new THREE.Mesh(
+    new THREE.CircleGeometry(150, 48),
+    new THREE.MeshLambertMaterial({ color: 0x2e3a30 })
+  );
+  bed.rotation.x = -Math.PI / 2;
+  bed.position.y = -1.2;
+  scene.add(bed);
+
+  // ---------- 浅滩沙洲 ----------
+  const shallows = new THREE.Mesh(
+    new THREE.SphereGeometry(5.2, 48, 24),
+    new THREE.MeshLambertMaterial({ color: 0xc9a86c })
+  );
+  shallows.scale.set(1.25, 0.16, 1.0); // 压扁成低矮沙洲
+  shallows.position.y = -0.25;         // 露出水面的部分约 0.5 高
+  scene.add(shallows);
+
+  // 沙洲上的一小块草皮色，增加层次
+  const grass = new THREE.Mesh(
+    new THREE.CircleGeometry(2.1, 32),
+    new THREE.MeshLambertMaterial({ color: 0x7d8a4f })
+  );
+  grass.rotation.x = -Math.PI / 2;
+  grass.position.set(-0.4, 0.585, -0.3);
+  grass.scale.set(1.2, 0.9, 1);
+  scene.add(grass);
+
+  // 中间小水塘的水面（夜鹭可以走进去站着）
+  const pond = new THREE.Mesh(new THREE.CircleGeometry(1.3, 28),
+    new THREE.MeshLambertMaterial({ color: 0x2f7a80, transparent: true, opacity: 0.8 }));
+  pond.rotation.x = -Math.PI / 2;
+  pond.scale.set(1.2, 0.9, 1);
+  pond.position.set(-0.4, 0.59, -0.3);
+  scene.add(pond);
+
+  // 几块石头点缀
+  const rockMat = new THREE.MeshLambertMaterial({ color: 0x8a7f74 });
+  [[2.8, 0.35, 1.6, 0.35], [-2.4, 0.3, 2.1, 0.28], [3.4, 0.25, -1.2, 0.22]].forEach(function (r) {
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(r[3], 0), rockMat);
+    rock.position.set(r[0], r[1], r[2]);
+    rock.rotation.set(Math.random(), Math.random(), Math.random());
+    rock.scale.y = 0.7;
+    scene.add(rock);
+  });
+
+  // ---------- 水面（半透明 + 顶点波纹起伏） ----------
+  const waterGeo = new THREE.PlaneGeometry(160, 160, 88, 88);
+  const waterMat = new THREE.MeshPhongMaterial({
+    color: 0x16343e,        // 黄昏下偏暗的青蓝湖水
+    transparent: true,
+    opacity: 0.78,
+    shininess: 90,
+    specular: 0xffa860,     // 暖色高光，让夕阳在水面拉出反光
+    emissive: 0x1a2a3a,
+    side: THREE.DoubleSide
+  });
+  const water = new THREE.Mesh(waterGeo, waterMat);
+  water.rotation.x = -Math.PI / 2;
+  scene.add(water);
+
+  const waterPos = waterGeo.attributes.position;
+  const waterBase = new Float32Array(waterPos.array); // 保存原始 x/y，避免累积误差
+
+  function updateWater(t) {
+    for (let i = 0; i < waterPos.count; i++) {
+      const x = waterBase[i * 3], y = waterBase[i * 3 + 1];
+      waterPos.setZ(i,
+        Math.sin(x * 0.45 + t * 1.3) * 0.075 +
+        Math.sin(y * 0.38 + t * 0.95) * 0.07 +
+        Math.sin((x + y) * 0.22 + t * 0.62) * 0.045 +
+        Math.sin(x * 1.1 - y * 0.8 + t * 2.1) * 0.02
+      );
+    }
+    waterPos.needsUpdate = true;
+    waterGeo.computeVertexNormals();
+  }
+
+  // ---------- 芦苇（随风轻微摆动） ----------
+  const reedStalkMat = new THREE.MeshLambertMaterial({ color: 0x6f7a3d });
+  const reedHeadMat  = new THREE.MeshLambertMaterial({ color: 0x5a4630 }); // 香蒲穗
+  const reeds = []; // { pivot, speed, phase, lean }
+
+  function addReed(x, z) {
+    const h = 1.1 + Math.random() * 0.9;
+    const pivot = new THREE.Group();
+    pivot.position.set(x, 0, z);
+    pivot.rotation.y = Math.random() * Math.PI * 2;
+    // 固定基础倾斜，模拟自然生长方向
+    const lean = (Math.random() - 0.5) * 0.16;
+
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.03, h, 5), reedStalkMat);
+    stalk.position.y = h / 2;
+    pivot.add(stalk);
+
+    if (Math.random() < 0.45) { // 部分芦苇带香蒲穗
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.28, 6), reedHeadMat);
+      head.position.y = h + 0.1;
+      pivot.add(head);
+    }
+    pivot.rotation.z = lean;
+    scene.add(pivot);
+    reeds.push({ pivot: pivot, speed: 0.8 + Math.random() * 0.8, phase: Math.random() * Math.PI * 2, lean: lean });
+  }
+
+  function addReedClump(cx, cz, count, radius) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * radius;
+      addReed(cx + Math.cos(a) * r, cz + Math.sin(a) * r);
+    }
+  }
+
+  // 浅滩边缘与水中布置几丛芦苇
+  addReedClump(4.6, 2.8, 9, 0.9);
+  addReedClump(-4.2, -3.4, 10, 1.0);
+  addReedClump(2.2, -4.6, 8, 0.8);
+  addReedClump(-5.4, 1.6, 9, 1.0);
+  addReedClump(6.5, -0.6, 7, 0.7);
+  addReedClump(-1.8, 5.2, 8, 0.9);
+  addReedClump(9.5, 4.5, 6, 0.8);
+  addReedClump(-8.5, -6.5, 7, 0.9);
+
+  // 水下小沙埂：从沙洲边缘延伸进水里，让夜鹭站在"脚踝被水淹"的浅水深度
+  const spit = new THREE.Mesh(new THREE.SphereGeometry(1.6, 24, 12),
+    new THREE.MeshLambertMaterial({ color: 0x8a7450 })); // 比沙洲暗，水下不抢眼
+  spit.scale.set(1.3, 0.32, 1.0); // 顶部约 -0.17，刚好没入水面
+  spit.position.set(5.6, -0.68, 4.6);
+  scene.add(spit);
+
+  // ---------- 夜鹭（几何体组合模型） ----------
+  function buildHeron() {
+    const g = new THREE.Group();
+
+    const matBlue  = new THREE.MeshLambertMaterial({ color: 0x54687e }); // 上体灰蓝
+    const matWhite = new THREE.MeshLambertMaterial({ color: 0xe8e6e0 }); // 胸腹白
+    const matBlack = new THREE.MeshLambertMaterial({ color: 0x23262b }); // 头顶/背黑
+    const matFace  = new THREE.MeshLambertMaterial({ color: 0xcfd2d4 }); // 脸颊浅灰
+    const matBill  = new THREE.MeshLambertMaterial({ color: 0x17191c }); // 长喙
+    const matLeg   = new THREE.MeshLambertMaterial({ color: 0x8fa04c }); // 腿黄绿
+    const matEye   = new THREE.MeshLambertMaterial({                     // 红眼微微发亮
+      color: 0xff2a1a, emissive: 0xd41f0e, emissiveIntensity: 0.9
+    });
+
+    // 腿：髋关节枢轴 + 细长黄绿腿（走路时前后摆动）
+    const legs = [];
+    [-0.09, 0.09].forEach(function (x) {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, 0.77, 0.02);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.76, 6), matLeg);
+      leg.position.y = -0.38;
+      pivot.add(leg);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.02, 0.16), matLeg);
+      foot.position.set(0, -0.75, 0.07);
+      pivot.add(foot);
+      g.add(pivot);
+      legs.push(pivot);
+    });
+
+    // 躯干（呼吸动画作用在这个组上，脖子作为子级跟随起伏）
+    const torso = new THREE.Group();
+    torso.position.set(0, 0.98, 0.02);
+    g.add(torso);
+
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 20), matBlue);
+    body.scale.set(0.9, 0.8, 1.3); // 扁椭圆
+    torso.add(body);
+
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.27, 20, 16), matWhite);
+    belly.scale.set(0.85, 0.9, 1.0);
+    belly.position.set(0, -0.1, 0.13); // 前下方露出白色胸腹
+    torso.add(belly);
+
+    const rump = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 12), matWhite);
+    rump.position.set(0, -0.03, -0.27); // 白色尾下
+    torso.add(rump);
+
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 10), matBlack);
+    tail.position.set(0, 0.12, -0.42);
+    tail.rotation.x = -1.0; // 短尾上翘
+    torso.add(tail);
+
+    // 翅膀：收拢贴身，偶尔扑棱
+    const wings = [];
+    [-1, 1].forEach(function (side) {
+      const pivot = new THREE.Group();
+      pivot.position.set(side * 0.18, 0.1, -0.02);
+      const wing = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), matBlue);
+      wing.scale.set(0.45, 0.12, 0.85);
+      wing.position.set(side * 0.12, 0, -0.05);
+      pivot.add(wing);
+      pivot.rotation.z = -side * 0.06;
+      torso.add(pivot);
+      wings.push(pivot);
+    });
+
+    // 脖子：4 段圆柱关节链，关节逐段嵌套，可摆出 S 形
+    const neckSegLen = 0.17;
+    const joints = [];
+    const segs = [];
+    let parent = torso;
+    for (let i = 0; i < 4; i++) {
+      const joint = new THREE.Group();
+      if (i === 0) joint.position.set(0, 0.16, 0.26); // 挂在躯干前上方
+      else joint.position.set(0, neckSegLen, 0);
+      const seg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05 - i * 0.004, 0.055 - i * 0.004, neckSegLen, 8),
+        matBlue
+      );
+      seg.position.y = neckSegLen / 2;
+      joint.add(seg);
+      segs.push(seg);
+      parent.add(joint);
+      joints.push(joint);
+      parent = joint;
+    }
+
+    // 头：黑色头顶 + 浅灰脸颊 + 红眼 + 黑色长喙 + 枕后白色饰羽
+    const head = new THREE.Group();
+    head.position.set(0, neckSegLen, 0);
+    joints[3].add(head);
+
+    head.add(new THREE.Mesh(new THREE.SphereGeometry(0.115, 18, 14), matBlack)); // 头顶黑
+
+    const face = new THREE.Mesh(new THREE.SphereGeometry(0.1, 18, 14), matFace);
+    face.scale.set(0.9, 0.95, 0.85);
+    face.position.set(0, -0.005, 0.045); // 前脸浅灰，衬托红眼
+    head.add(face);
+
+    const eyes = [];
+    [-0.068, 0.068].forEach(function (x) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.021, 10, 8), matEye);
+      eye.position.set(x, 0.028, 0.078);
+      head.add(eye);
+      eyes.push(eye);
+    });
+
+    const bill = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.4, 10), matBill);
+    bill.rotation.x = Math.PI / 2 + 0.06; // 尖端朝前，微微下压
+    bill.position.set(0, -0.01, 0.26);
+    head.add(bill);
+
+    const billTip = new THREE.Object3D(); // 喙尖锚点：确定啄击落点
+    billTip.position.set(0, -0.01, 0.46);
+    head.add(billTip);
+
+    const plumeMat = new THREE.MeshLambertMaterial({ color: 0xf0eee8 });
+    [-0.03, 0.03].forEach(function (x) {
+      const plume = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.004, 0.16, 4), plumeMat);
+      plume.position.set(x, 0.03, -0.1);
+      plume.rotation.x = -2.0; // 枕后两根白色饰羽，夜鹭标志
+      head.add(plume);
+    });
+
+    return { group: g, torso: torso, body: body, joints: joints, segs: segs, head: head, eyes: eyes, billTip: billTip, wings: wings, legs: legs };
+  }
+
+  const heron = buildHeron();
+  heron.group.position.set(3.2, 0.32, 2.6); // 站在大沙洲顶面上
+  heron.group.rotation.y = -0.85;            // 朝向捕食水域，侧对镜头
+  scene.add(heron.group);
+
+  // 机位方向柔和暖色补光，避免夜鹭背光面死黑
+  const fillLight = new THREE.DirectionalLight(0xff9a6a, 0.35);
+  fillLight.position.set(10, 6, 12);
+  scene.add(fillLight);
+
+  // ---------- 夜鹭动画：待机 + 捕食状态机 ----------
+  // 脖子关节用"累计角度"描述（相对竖直方向，正值向前倾），逐帧换算成各关节相对转角
+  const HUNCHED = [0.35, 1.22, 2.27, 1.92]; // 待机收拢 S 形
+  const ALERT   = [0.09, 0.09, -0.09, 0.0]; // 伸直姿态（插值端点）
+  // 三档弹射姿态：按准星距离插值（近=竖直下啄，远=前扑长弹）。
+  // headPitch 逐档补偿，保证头部累计俯仰 ≈1.35~1.45 rad，喙始终指向"前下方"而不是翻向后侧
+  const CLOSE = { theta: [2.2, 2.6, 2.9, 3.1], stretch: 1.15, lunge: 0.05, headPitch: -1.75 };
+  const NEAR  = { theta: [1.6, 2.05, 2.4, 2.7], stretch: 1.5, lunge: 0.2, headPitch: -1.5 };
+  const FAR   = { theta: [0.95, 1.55, 2.0, 2.35], stretch: 2.4, lunge: 0.3, headPitch: -1.0 };
+  const MIN_D = 0.65, MAX_D = 1.61; // 准星可达范围（水平距离，相对夜鹭根部，按实测标定）
+
+  const hunt = {
+    state: 'idle',              // idle | charging | striking | retracting
+    chargeT: 0,                 // 蓄力进度 0~1（对应 0~1 秒）
+    strikeT: 0, strikeDur: 0.14,
+    retractT: 0,
+    power: 0,                   // 本次弹射力度
+    poseStart: null,            // 姿态快照（弹射起点 / 收回起点）
+    splashed: false,
+    zoom: 0,                    // 镜头拉近系数
+    lookBias: 0, splashPos: null, // 啄击后镜头跟随落点
+    headYaw: 0,                 // 头部朝向准星的附加偏航
+    cur: null                   // 当前姿态
+  };
+
+  function idlePose(t) {
+    const e = 0.2 + 0.12 * Math.sin(t * 0.33 + 0.8);        // 脖子缓慢伸缩
+    const dipRaw = Math.max(0, Math.sin(t * 0.29 - 0.9));
+    const dip = dipRaw * dipRaw * dipRaw * 0.55;            // 偶尔低头看水面
+    const theta = HUNCHED.map(function (h, i) { return h + (ALERT[i] - h) * e; });
+    theta[2] += dip * 0.5;
+    theta[3] += dip * 0.9;
+    return {
+      theta: theta, stretch: 1, lunge: 0, crouch: 0,
+      headPitch: -0.32 + dip * 1.4 + Math.sin(t * 0.6) * 0.03,
+      lookY: 0.3 * Math.sin(t * 0.17) + 0.14 * Math.sin(t * 0.41)
+    };
+  }
+
+  function strikePoseFor(k) {
+    const p = k < 0.5 ? lerpPose(CLOSE, NEAR, k * 2) : lerpPose(NEAR, FAR, (k - 0.5) * 2);
+    p.lookY = 0;
+    p.crouch = 0;
+    return p;
+  }
+
+  function lerpPose(a, b, k) {
+    return {
+      theta: a.theta.map(function (v, i) { return v + (b.theta[i] - v) * k; }),
+      stretch: a.stretch + (b.stretch - a.stretch) * k,
+      lunge: a.lunge + (b.lunge - a.lunge) * k,
+      crouch: a.crouch + (b.crouch - a.crouch) * k,
+      headPitch: a.headPitch + (b.headPitch - a.headPitch) * k,
+      lookY: a.lookY + (b.lookY - a.lookY) * k
+    };
+  }
+  function copyPose(p) { return lerpPose(p, p, 0); }
+
+  // 把姿态写到骨架上；wobble 为收回时的弹簧晃动量
+  function applyPose(p, t, wobble) {
+    const w = wobble || 0;
+    let prev = 0;
+    for (let i = 0; i < 4; i++) {
+      heron.joints[i].rotation.x = p.theta[i] - prev + w * (0.5 + 0.2 * i) * (i % 2 ? 1 : -0.6);
+      prev = p.theta[i];
+    }
+    for (let i = 0; i < 4; i++) {
+      const L = 0.17 * p.stretch; // 每段当前长度
+      heron.segs[i].scale.y = p.stretch;
+      heron.segs[i].position.y = L / 2;
+      if (i < 3) heron.joints[i + 1].position.y = L;
+      else heron.head.position.y = L;
+    }
+    heron.head.rotation.x = p.headPitch;
+    heron.head.rotation.y = p.lookY + hunt.headYaw; // 持续看向准星
+
+    // 呼吸 + 蓄力下压 + 弹射前扑 + 走路起伏
+    const breath = Math.sin(t * 1.6) * 0.012;
+    heron.body.scale.set(0.9 * (1 + breath * 0.6), 0.8 * (1 + breath), 1.3);
+    const lungeK = p.lunge / 0.3;
+    heron.torso.position.y = 0.98 + breath * 0.35 - p.crouch * 0.07 - lungeK * 0.28
+      + Math.abs(Math.sin(walkPhase)) * 0.05 * walkAmount;
+    heron.torso.position.z = 0.02 + lungeK * 0.12;
+    heron.torso.rotation.x = p.crouch * 0.08 + lungeK * 0.35;
+    heron.torso.rotation.z = 0.025 * Math.sin(t * 0.23) * (1 - lungeK)
+      + Math.sin(walkPhase) * 0.04 * walkAmount;
+  }
+
+  // 眨眼：两个错开的周期窗口，用正弦做平滑闭/开
+  function blinkScale(tt) {
+    function window_(period, start, dur) {
+      const p = ((tt % period) + period) % period;
+      if (p < start || p > start + dur) return 1;
+      return 1 - Math.sin(((p - start) / dur) * Math.PI) * 0.9;
+    }
+    return Math.min(window_(4.1, 3.4, 0.16), window_(6.7, 5.1, 0.14), window_(11.3, 9.2, 0.19));
+  }
+
+  // ---------- 水花粒子与波纹 ----------
+  const splashPool = [];
+  const splashGeo = new THREE.SphereGeometry(1, 6, 5);
+  for (let i = 0; i < 28; i++) {
+    const m = new THREE.Mesh(splashGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }));
+    m.visible = false;
+    scene.add(m);
+    splashPool.push({ mesh: m, vel: new THREE.Vector3(), life: 0, active: false });
+  }
+
+  function spawnSplash(pos, power) {
+    let n = Math.floor(10 + power * 16);
+    for (const p of splashPool) {
+      if (p.active) continue;
+      p.active = true;
+      p.mesh.visible = true;
+      p.life = 0;
+      p.mesh.position.set(pos.x + (Math.random() - 0.5) * 0.16, pos.y || 0.05, pos.z + (Math.random() - 0.5) * 0.16);
+      const a = Math.random() * Math.PI * 2;
+      const r = 0.2 + Math.random() * 0.5 * power;
+      p.vel.set(Math.cos(a) * r, 1.4 + Math.random() * (1.0 + 1.8 * power), Math.sin(a) * r);
+      p.mesh.scale.setScalar(0.02 + Math.random() * 0.03 * (0.6 + power));
+      if (--n <= 0) break;
+    }
+  }
+
+  function updateSplash(dt) {
+    for (const p of splashPool) {
+      if (!p.active) continue;
+      p.life += dt;
+      p.vel.y -= 7.5 * dt;
+      p.mesh.position.addScaledVector(p.vel, dt);
+      p.mesh.material.opacity = Math.max(0, 0.9 - p.life * 1.5);
+      if (p.life > 0.7 || p.mesh.position.y < -0.05) {
+        p.active = false;
+        p.mesh.visible = false;
+      }
+    }
+  }
+
+  const ripplePool = [];
+  const rippleGeo = new THREE.RingGeometry(0.42, 0.5, 40);
+  for (let i = 0; i < 4; i++) {
+    const m = new THREE.Mesh(rippleGeo, new THREE.MeshBasicMaterial({
+      color: 0xffe6c0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false
+    }));
+    m.rotation.x = -Math.PI / 2;
+    m.visible = false;
+    scene.add(m);
+    ripplePool.push({ mesh: m, life: 0, active: false });
+  }
+
+  function spawnRipple(pos, power) {
+    const r = ripplePool.find(function (r) { return !r.active; }) || ripplePool[0];
+    r.active = true;
+    r.life = power > 0.55 ? -0.18 : 0; // 大力啄击时补一圈延迟波纹
+    r.max = 2.6 + power * 1.6;
+    r.mesh.visible = true;
+    r.mesh.position.set(pos.x, (pos.y || 0.05) - 0.005, pos.z);
+  }
+
+  function updateRipples(dt) {
+    for (const r of ripplePool) {
+      if (!r.active) continue;
+      r.life += dt;
+      if (r.life < 0) continue;
+      const k = r.life / 1.1;
+      if (k >= 1) { r.active = false; r.mesh.visible = false; continue; }
+      const s = 0.4 + k * r.max;
+      r.mesh.scale.set(s, s, 1);
+      r.mesh.material.opacity = 0.5 * (1 - k);
+    }
+  }
+
+  // ---------- 捕食输入：按住蓄力，松开弹射 ----------
+  renderer.domElement.style.cursor = 'crosshair';
+  renderer.domElement.addEventListener('pointerdown', function (ev) {
+    if (ev.button !== 0 || hunt.state !== 'idle') return;
+    mouseNDC.x = (ev.clientX / window.innerWidth) * 2 - 1;
+    mouseNDC.y = -(ev.clientY / window.innerHeight) * 2 + 1;
+    hunt.state = 'charging';
+    hunt.chargeT = 0;
+  });
+  window.addEventListener('pointerup', function () {
+    if (hunt.state !== 'charging') return;
+    // 距离由准星决定：目标点与夜鹭根部的水平距离，clamp 在近/远之间
+    const dx = aimPoint.x - heron.group.position.x;
+    const dz = aimPoint.z - heron.group.position.z;
+    const dist = Math.max(MIN_D, Math.min(MAX_D, Math.hypot(dx, dz)));
+    hunt.distK = (dist - MIN_D) / (MAX_D - MIN_D);
+    hunt.power = 0.2 + 0.8 * hunt.chargeT;     // 蓄力只影响弹射速度与收回力度
+    hunt.strikeDur = 0.18 - 0.08 * hunt.power;
+    hunt.strikeT = 0;
+    hunt.splashed = false;
+    hunt.poseStart = copyPose(hunt.cur);
+    hunt.state = 'striking';
+  });
+
+  // ---------- 输入控制：鼠标投射水面瞄准 + 准星 + WASD 移动 ----------
+  const raycaster = new THREE.Raycaster();
+  const waterPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const mouseNDC = new THREE.Vector2(0, 0);
+  const HIT_TMP = new THREE.Vector3();
+  const aimPoint = new THREE.Vector3(3.4, 0, 5.0); // 当前啄击目标点
+  let aimOutOfRange = false;
+  const reachTip = document.getElementById('reach-tip');
+
+  const crossMat = new THREE.MeshBasicMaterial({
+    color: 0xffd9a0, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false
+  });
+  const crosshairGroup = new THREE.Group();
+  const crosshairRing = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.33, 36), crossMat);
+  crosshairRing.rotation.x = -Math.PI / 2;
+  crosshairGroup.add(crosshairRing);
+  const crosshairDot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 16), crossMat);
+  crosshairDot.rotation.x = -Math.PI / 2;
+  crosshairGroup.add(crosshairDot);
+  crosshairGroup.position.set(aimPoint.x, 0.09, aimPoint.z);
+  scene.add(crosshairGroup);
+
+  window.addEventListener('pointermove', function (ev) {
+    mouseNDC.x = (ev.clientX / window.innerWidth) * 2 - 1;
+    mouseNDC.y = -(ev.clientY / window.innerHeight) * 2 + 1;
+  });
+
+  // WASD 全方向移动 + Shift 小跑
+  const keyMove = { f: false, b: false, l: false, r: false, shift: false };
+  document.querySelectorAll('[data-move]').forEach(function (button) {
+    const direction = button.dataset.move;
+    const press = function (ev) { ev.preventDefault(); ev.stopPropagation(); keyMove[direction] = true; button.setPointerCapture?.(ev.pointerId); };
+    const release = function (ev) { ev.preventDefault(); keyMove[direction] = false; };
+    button.addEventListener('pointerdown', press);
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointercancel', release);
+    button.addEventListener('lostpointercapture', release);
+  });
+  document.getElementById('mobile-strike').addEventListener('pointerdown', function (ev) {
+    ev.preventDefault(); ev.stopPropagation();
+    if (hunt.state !== 'idle') return;
+    hunt.state = 'charging'; hunt.chargeT = 0;
+    this.setPointerCapture?.(ev.pointerId);
+  });
+  window.addEventListener('keydown', function (ev) {
+    if (ev.code === 'KeyW' || ev.code === 'ArrowUp') keyMove.f = true;
+    if (ev.code === 'KeyS' || ev.code === 'ArrowDown') keyMove.b = true;
+    if (ev.code === 'KeyA' || ev.code === 'ArrowLeft') keyMove.l = true;
+    if (ev.code === 'KeyD' || ev.code === 'ArrowRight') keyMove.r = true;
+    if (ev.code === 'ShiftLeft' || ev.code === 'ShiftRight') keyMove.shift = true;
+  });
+  window.addEventListener('keyup', function (ev) {
+    if (ev.code === 'KeyW' || ev.code === 'ArrowUp') keyMove.f = false;
+    if (ev.code === 'KeyS' || ev.code === 'ArrowDown') keyMove.b = false;
+    if (ev.code === 'KeyA' || ev.code === 'ArrowLeft') keyMove.l = false;
+    if (ev.code === 'KeyD' || ev.code === 'ArrowRight') keyMove.r = false;
+    if (ev.code === 'ShiftLeft' || ev.code === 'ShiftRight') keyMove.shift = false;
+  });
+
+  // 可走区域：以大沙洲为中心的椭圆（含周围浅水带）；中间小水塘视为水
+  const WALK_R2 = 1.08;
+  const POND_SURF = 0.59;
+
+  // 返回该点站立的 y 高度；椭圆外返回 null（不可走）
+  function groundHeight(x, z) {
+    const a = x / 6.5, b = z / 5.2;
+    const r2 = a * a + b * b;
+    if (r2 >= WALK_R2) return null;
+    let y;
+    if (r2 < 1) y = -0.25 + 0.832 * Math.sqrt(1 - r2);   // 沙洲顶面（连续爬升）
+    else y = -0.25 + (r2 - 1) / (WALK_R2 - 1) * 0.03;    // 浅水带（水面下 0.22 左右）
+    const px = (x + 0.4) / 1.56, pz = (z + 0.3) / 1.17;  // 中间小水塘
+    const pd = px * px + pz * pz;
+    if (pd < 1.45) {
+      const f = Math.min(1, Math.max(0, (1.45 - pd) / 0.9));
+      const t = f * f * (3 - 2 * f);
+      y = y * (1 - t) + (POND_SURF - 0.13) * t;          // 平滑过渡到水面下
+    }
+    return y;
+  }
+
+  // 相机固定方向：W=画面深处，D=屏幕右
+  const CAM_FWD = { x: -0.668, z: -0.748 };
+  const CAM_RIGHT = { x: 0.748, z: -0.668 };
+  let walkPhase = 0, walkAmount = 0;
+
+  function applyLegs() {
+    heron.legs[0].rotation.x = Math.sin(walkPhase) * 0.5 * walkAmount;
+    heron.legs[1].rotation.x = -Math.sin(walkPhase) * 0.5 * walkAmount;
+  }
+
+  function updateMovement(dt) {
+    if (hunt.state === 'striking' || hunt.state === 'retracting') {
+      walkAmount = Math.max(0, walkAmount - dt * 6);
+      applyLegs();
+      return;
+    }
+    let mx = 0, mz = 0;
+    if (keyMove.f) { mx += CAM_FWD.x; mz += CAM_FWD.z; }
+    if (keyMove.b) { mx -= CAM_FWD.x; mz -= CAM_FWD.z; }
+    if (keyMove.r) { mx += CAM_RIGHT.x; mz += CAM_RIGHT.z; }
+    if (keyMove.l) { mx -= CAM_RIGHT.x; mz -= CAM_RIGHT.z; }
+    const len = Math.hypot(mx, mz);
+    if (len === 0) {
+      walkAmount = Math.max(0, walkAmount - dt * 6);
+      applyLegs();
+      return;
+    }
+    mx /= len; mz /= len;
+    const spd = keyMove.shift ? 2.7 : 1.7; // Shift 小跑
+    const nx = heron.group.position.x + mx * spd * dt;
+    const nz = heron.group.position.z + mz * spd * dt;
+    const h = groundHeight(nx, nz);
+    if (h !== null) {
+      heron.group.position.x = Math.max(-8.5, Math.min(8.5, nx));
+      heron.group.position.z = Math.max(-8.5, Math.min(8.5, nz));
+      walkPhase += dt * (keyMove.shift ? 11 : 7.5);
+      walkAmount = Math.min(1, walkAmount + dt * 6);
+    } else {
+      walkAmount = Math.max(0, walkAmount - dt * 6); // 被椭圆边界拦住
+    }
+    applyLegs();
+  }
+
+  function updateAiming(dt) {
+    // 鼠标射线 → 水面 y=0（只在待机时更新：蓄力/弹射期间镜头在动，锁定目标防漂移）
+    if (hunt.state === 'idle') {
+      raycaster.setFromCamera(mouseNDC, camera);
+      if (raycaster.ray.intersectPlane(waterPlane, HIT_TMP)) {
+        aimPoint.copy(HIT_TMP);
+        // 沙洲上方不可啄：径向推到水边；限制在场地内
+        const a = aimPoint.x / 6.5, b = aimPoint.z / 5.2;
+        const d2 = a * a + b * b;
+        if (d2 < 1.12) {
+          const s = Math.sqrt(1.12 / Math.max(d2, 1e-4));
+          aimPoint.x *= s;
+          aimPoint.z *= s;
+        }
+        aimPoint.x = Math.max(-9, Math.min(9, aimPoint.x));
+        aimPoint.z = Math.max(-9, Math.min(9, aimPoint.z));
+        aimPoint.y = 0;
+      }
+    }
+
+    // 脖子根部（身体）缓慢转向准星；弹射期间快速转身补齐
+    const dx = aimPoint.x - heron.group.position.x;
+    const dz = aimPoint.z - heron.group.position.z;
+    const aimHeading = Math.atan2(dx, dz);
+    const turnRate = (hunt.state === 'striking' || hunt.state === 'retracting') ? 10 : 2.2;
+    heron.group.rotation.y = turnToward(heron.group.rotation.y, aimHeading, dt * turnRate);
+    let err = aimHeading - heron.group.rotation.y;
+    err = Math.atan2(Math.sin(err), Math.cos(err));
+    hunt.headYaw = Math.max(-0.85, Math.min(0.85, err)) * 0.7; // 头补齐剩余角度，始终“看着”准星
+
+    // 距离与准星反馈
+    const dist = Math.hypot(dx, dz);
+    aimOutOfRange = dist > MAX_D;
+    const charging = hunt.state === 'charging';
+    if (aimOutOfRange) {
+      crossMat.color.setHex(0xff4433);
+      crossMat.opacity = 0.85;
+    } else {
+      crossMat.color.setHex(0xffd9a0);
+      crossMat.opacity = charging ? 0.55 + 0.4 * hunt.chargeT : 0.55;
+    }
+    crosshairGroup.position.set(aimPoint.x, 0.09, aimPoint.z);
+    crosshairGroup.scale.setScalar(charging ? 1 + 0.3 * hunt.chargeT : 1);
+
+    // “够不到”提示跟随准星
+    if (aimOutOfRange) {
+      HIT_TMP.copy(aimPoint);
+      HIT_TMP.y = 0.4;
+      HIT_TMP.project(camera);
+      reachTip.style.left = ((HIT_TMP.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+      reachTip.style.top = ((-HIT_TMP.y * 0.5 + 0.5) * window.innerHeight) + 'px';
+      reachTip.style.display = 'block';
+    } else {
+      reachTip.style.display = 'none';
+    }
+  }
+
+  let wingTimer = 6, wingFlapT = -1; // 翅膀扑棱计时
+  function updateHunt(t, dt) {
+    const H = hunt;
+    if (H.state === 'idle') {
+      if (!H.cur) H.cur = idlePose(t);
+      H.cur = lerpPose(H.cur, idlePose(t), Math.min(1, dt * 4));
+      applyPose(H.cur, t, 0);
+    } else if (H.state === 'charging') {
+      H.chargeT = Math.min(H.chargeT + dt, 1);
+      const base = idlePose(t);
+      // 脖子回缩：伸直系数从待机值滑向 -0.15（比收拢更紧，且头部俯仰不越过翻转点）
+      const e = (0.2 + 0.12 * Math.sin(t * 0.33 + 0.8)) * (1 - H.chargeT) + (-0.15) * H.chargeT;
+      base.theta = HUNCHED.map(function (h, i) { return h + (ALERT[i] - h) * e; });
+      base.headPitch -= 0.15 * H.chargeT;
+      base.crouch = H.chargeT;           // 身体微微下压蓄势
+      base.lookY *= 1 - H.chargeT;
+      H.cur = lerpPose(H.cur, base, Math.min(1, dt * 10));
+      applyPose(H.cur, t, 0);
+    } else if (H.state === 'striking') {
+      H.strikeT += dt;
+      const p = Math.min(H.strikeT / H.strikeDur, 1);
+      const ease = 1 - Math.pow(1 - p, 4); // 起手爆发、末端减速
+      H.cur = lerpPose(H.poseStart, strikePoseFor(H.distK), ease);
+      applyPose(H.cur, t, 0);
+      if (p >= 0.85 && !H.splashed) {
+        H.splashed = true;
+        const tip = new THREE.Vector3();
+        heron.billTip.getWorldPosition(tip);
+        const gy = (groundHeight(tip.x, tip.z) ?? 0) + 0.04; // 落点贴合地面/水面高度
+        const pos = { x: tip.x, y: gy, z: tip.z };
+        spawnSplash(pos, H.power);
+        spawnRipple(pos, H.power);
+        H.splashPos = new THREE.Vector3(tip.x, gy + 0.05, tip.z);
+        H.lookBias = 1; // 镜头轻微跟随落点
+        if (!tryCatchFish(tip)) { game.combo = 0; updateComboHud(); } // 啄空断连击
+        scareFish(new THREE.Vector3(tip.x, 0, tip.z), 1.9); // 落水声惊吓附近的大鱼
+      }
+      if (p >= 1) {
+        H.state = 'retracting';
+        H.retractT = 0;
+        H.poseStart = copyPose(H.cur);
+      }
+    } else if (H.state === 'retracting') {
+      H.retractT += dt;
+      const tau = H.retractT;
+      const q = Math.min(tau / 0.6, 1);
+      const qs = q * q * (3 - 2 * q); // 平滑回到待机
+      const base = lerpPose(H.poseStart, idlePose(t), qs);
+      // 弹簧阻尼晃动：角度小幅震荡 + 脖长回弹（低阻尼，更弹）
+      const wobble = Math.exp(-3.8 * tau) * Math.cos(13 * tau) * 0.17 * (0.4 + 0.6 * H.power);
+      base.stretch += (H.poseStart.stretch - 1) * Math.exp(-4.2 * tau) * Math.cos(11 * tau) * 0.35;
+      H.cur = base;
+      applyPose(H.cur, t, wobble);
+      if (tau > 1.0) H.state = 'idle';
+    }
+
+    // 翅膀偶尔扑棱两下（待机/蓄力时才触发）
+    if (H.state === 'idle' || H.state === 'charging') {
+      wingTimer -= dt;
+      if (wingTimer <= 0 && wingFlapT < 0) {
+        wingFlapT = 0;
+        wingTimer = 5 + Math.random() * 6;
+      }
+    }
+    if (wingFlapT >= 0) {
+      wingFlapT += dt;
+      const k = wingFlapT / 0.75;
+      const flap = k >= 1 ? 0 : Math.abs(Math.sin(k * Math.PI * 2)) * (1 - k * 0.25);
+      for (let i = 0; i < heron.wings.length; i++) {
+        const side = Math.sign(heron.wings[i].position.x);
+        heron.wings[i].rotation.z = side * (-0.06 + flap);
+      }
+      if (k >= 1) wingFlapT = -1;
+    }
+
+    const blink = blinkScale(t);
+    heron.eyes[0].scale.y = blink;
+    heron.eyes[1].scale.y = blink;
+  }
+
+  // ---------- 鱼类：四种鱼（小鱼 / 大鱼 / 跳鱼 / 金鱼） ----------
+  const SCORES = { small: 10, jumper: 30, big: 50, gold: 100 };
+  const WAG_SPEED = { small: 14, big: 4, jumper: 8, gold: 7 };
+  const fishList = [];
+  let goldTimer = 8; // 开局 8 秒出现第一只金鱼，之后每 20 秒一只
+  let totalScore = 0;
+
+  // 身体 + 尾巴的组合鱼
+  function buildFish(color, scale, glowIntensity) {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshLambertMaterial({
+      color: color,
+      emissive: color,
+      emissiveIntensity: glowIntensity || 0.22 // 轻微自发光，保证水下可见
+    });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), mat);
+    body.scale.set(0.55, 0.62, 1.35); // 侧扁纺锤形
+    g.add(body);
+    const tail = new THREE.Group();
+    tail.position.set(0, 0, -0.2);
+    const fin = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.24, 8), mat);
+    fin.rotation.x = -Math.PI / 2; // 三角尾展开向后
+    fin.position.z = -0.1;
+    fin.scale.x = 0.25;
+    tail.add(fin);
+    g.add(tail);
+    g.scale.setScalar(scale);
+    return { group: g, tail: tail };
+  }
+
+  function inIsland(x, z, margin) {
+    const a = x / 6.5, b = z / 5.2;
+    return a * a + b * b < margin;
+  }
+
+  function randomWaterPos() {
+    for (let i = 0; i < 30; i++) {
+      const x = (Math.random() * 2 - 1) * 8.5;
+      const z = (Math.random() * 2 - 1) * 8.5;
+      if (!inIsland(x, z, 1.02)) return { x: x, z: z };
+    }
+    return { x: 5.5, z: -5.5 };
+  }
+
+  function makeFish(type, color, scale, opts) {
+    opts = opts || {};
+    const built = buildFish(color, scale, opts.glow);
+    const f = {
+      type: type, score: SCORES[type], size: scale,
+      group: built.group, tail: built.tail,
+      alive: true, phase: Math.random() * Math.PI * 2,
+      heading: Math.random() * Math.PI * 2, targetHeading: 0,
+      wanderT: 0, state: 'swim', t1: opts.jumpDelay || 0,
+      vel: new THREE.Vector3(), respawnT: 0,
+      baseY: opts.baseY || -0.16,
+      glowSprite: null
+    };
+    if (opts.glowSprite) { // 金鱼的发光光晕
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTex, color: 0xffc85a, transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      }));
+      s.scale.setScalar(1.3);
+      f.glowSprite = s;
+      f.group.add(s);
+    }
+    f.targetHeading = f.heading;
+    const p = randomWaterPos();
+    f.group.position.set(p.x, f.baseY, p.z);
+    scene.add(f.group);
+    fishList.push(f);
+    return f;
+  }
+
+  for (let i = 0; i < 7; i++) makeFish('small', 0x9fb8c8, 0.5);           // 小鱼
+  for (let i = 0; i < 2; i++) makeFish('big', 0x4a6a55, 1.05, { baseY: -0.2 }); // 大鱼
+  for (let i = 0; i < 2; i++) makeFish('jumper', 0x6b5a3e, 0.7, { jumpDelay: i * 1.7 }); // 跳鱼
+
+  function turnToward(cur, target, maxDelta) {
+    let d = target - cur;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    return cur + Math.max(-maxDelta, Math.min(maxDelta, d));
+  }
+
+  // 保持在捕食水域内、远离沙洲顶面；硬性推离防止鱼游上岸
+  function steerBounds(f) {
+    const p = f.group.position;
+    if (inIsland(p.x, p.z, 1.04) || Math.abs(p.x) > 8.6 || Math.abs(p.z) > 8.6) {
+      f.targetHeading = Math.atan2(-p.x, -p.z) + (Math.random() - 0.5) * 0.6;
+    }
+    const a = p.x / 6.5, b = p.z / 5.2;
+    const d2 = a * a + b * b;
+    if (d2 < 1.02) {
+      const s = Math.sqrt(1.02 / Math.max(d2, 1e-4));
+      p.x *= s;
+      p.z *= s;
+    }
+  }
+
+  function doWander(f, dt, speed, turnRate, wMin, wMax) {
+    f.wanderT -= dt;
+    if (f.wanderT <= 0) {
+      f.wanderT = wMin + Math.random() * (wMax - wMin);
+      f.targetHeading = Math.random() * Math.PI * 2;
+    }
+    steerBounds(f);
+    f.heading = turnToward(f.heading, f.targetHeading, dt * turnRate);
+    f.group.position.x += Math.sin(f.heading) * speed * dt;
+    f.group.position.z += Math.cos(f.heading) * speed * dt;
+    f.group.rotation.y = f.heading;
+  }
+
+  function moveForward(f, dt, speed) {
+    f.group.position.x += Math.sin(f.heading) * speed * dt;
+    f.group.position.z += Math.cos(f.heading) * speed * dt;
+    f.group.rotation.y = f.heading;
+  }
+
+  // 大鱼受惊：从威胁点向外加速逃窜
+  function scareFish(pos, radius) {
+    for (const f of fishList) {
+      if (f.type !== 'big' || !f.alive) continue;
+      if (f.group.position.distanceTo(pos) < radius) {
+        f.state = 'flee';
+        f.t1 = 1.6;
+        f.targetHeading = Math.atan2(f.group.position.x - pos.x, f.group.position.z - pos.z);
+      }
+    }
+  }
+
+  // ---------- UI 界面：星星粒子 / 得分弹出 / 连击 ----------
+  const starPool = [];
+  (function () {
+    const shape = new THREE.Shape();
+    const spikes = 5, outer = 0.5, inner = 0.22;
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? outer : inner;
+      const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+      const x = Math.cos(a) * r, y = Math.sin(a) * r;
+      if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+    }
+    shape.closePath();
+    const geo = new THREE.ShapeGeometry(shape);
+    for (let i = 0; i < 24; i++) {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: 0xffd24a, transparent: true, opacity: 1, side: THREE.DoubleSide, depthWrite: false
+      }));
+      m.visible = false;
+      scene.add(m);
+      starPool.push({ mesh: m, vel: new THREE.Vector3(), life: 0, active: false, spin: 0 });
+    }
+  })();
+
+  function spawnStars(pos) {
+    let n = 7;
+    for (const s of starPool) {
+      if (s.active) continue;
+      s.active = true;
+      s.mesh.visible = true;
+      s.life = 0;
+      s.mesh.position.copy(pos);
+      const a = Math.random() * Math.PI * 2;
+      const r = 0.6 + Math.random() * 0.9;
+      s.vel.set(Math.cos(a) * r, 1.2 + Math.random() * 1.2, Math.sin(a) * r);
+      s.spin = (Math.random() - 0.5) * 8;
+      s.mesh.scale.setScalar(0.12 + Math.random() * 0.1);
+      s.mesh.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+      if (--n <= 0) break;
+    }
+  }
+
+  function updateStars(dt) {
+    for (const s of starPool) {
+      if (!s.active) continue;
+      s.life += dt;
+      s.vel.y -= 3.5 * dt;
+      s.mesh.position.addScaledVector(s.vel, dt);
+      s.mesh.rotation.z += s.spin * dt;
+      s.mesh.material.opacity = Math.max(0, 1 - s.life / 0.8);
+      if (s.life > 0.8) { s.active = false; s.mesh.visible = false; }
+    }
+  }
+
+  function addScore(v) {
+    totalScore += v;
+    document.getElementById('score').textContent = totalScore;
+    goalFill.style.width = Math.min(100, totalScore / game.goal * 100) + '%';
+    if (!game.paused && totalScore >= game.goal) levelClear();
+  }
+
+  // ---------- 游戏流程 / 配置区：固定 7 关关卡数据与关卡状态 ----------
+  const LEVELS = [
+    { goal: 500, time: 600 },   // 第 1 关：500 分 / 10 分钟
+    { goal: 800, time: 720 },   // 第 2 关：800 分 / 12 分钟
+    { goal: 1000, time: 900 },  // 第 3 关：1000 分 / 15 分钟
+    { goal: 1500, time: 960 },  // 第 4 关：1500 分 / 16 分钟
+    { goal: 2000, time: 1020 }, // 第 5 关：2000 分 / 17 分钟
+    { goal: 2500, time: 1140 }, // 第 6 关：2500 分 / 19 分钟
+    { goal: 3000, time: 1200 }  // 第 7 关：3000 分 / 20 分钟
+  ];
+  const game = { started: false, level: 1, goal: 500, timeLeft: 600, levelTime: 0, combo: 0, paused: false,
+    totalScoreAll: 0, totalTimeAll: 0 };
+  const levelPanel = document.getElementById('level-panel');
+  const goalFill = document.getElementById('goal-fill');
+  const timeEl = document.getElementById('time');
+  const levelEl = document.getElementById('level');
+  const comboEl = document.getElementById('combo');
+  const startScreen = document.getElementById('start-screen');
+
+  function updateGoalHud() {
+    document.getElementById('score').textContent = totalScore;
+    document.getElementById('goal').textContent = game.goal;
+    goalFill.style.width = Math.min(100, totalScore / game.goal * 100) + '%';
+    levelEl.textContent = game.level;
+  }
+  function setTimeHud() { // 剩余时间格式 分:秒（如 09:45）
+    const s = Math.max(0, Math.ceil(game.timeLeft));
+    timeEl.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+  function updateComboHud() {
+    comboEl.textContent = game.combo >= 2 ? '连击 x' + game.combo : '';
+  }
+
+  function clearFish() {
+    for (let i = fishList.length - 1; i >= 0; i--) removeFish(i);
+  }
+
+  // 按关卡重建鱼群：基础 11 条 + 每关增援大鱼/跳鱼（比例随关卡缓慢上升）
+  function rebuildFish(level) {
+    clearFish();
+    for (let i = 0; i < 7; i++) makeFish('small', 0x9fb8c8, 0.5);
+    for (let i = 0; i < 2; i++) makeFish('big', 0x4a6a55, 1.05, { baseY: -0.2 });
+    for (let i = 0; i < 2; i++) makeFish('jumper', 0x6b5a3e, 0.7, { jumpDelay: i * 1.7 });
+    const extra = Math.min(level - 1, 3);
+    for (let i = 0; i < extra; i++) {
+      makeFish('big', 0x4a6a55, 1.05, { baseY: -0.2 });
+      makeFish('jumper', 0x6b5a3e, 0.7, { jumpDelay: 2.5 });
+    }
+    goldTimer = 8;
+  }
+
+  function resetHuntState() {
+    hunt.state = 'idle';
+    hunt.cur = null;
+    hunt.chargeT = 0;
+    hunt.lookBias = 0;
+    walkAmount = 0;
+    keyMove.f = keyMove.b = keyMove.l = keyMove.r = false;
+  }
+
+  function startLevel(level) {
+    game.level = level;
+    game.goal = LEVELS[level - 1].goal;
+    game.timeLeft = LEVELS[level - 1].time;
+    game.levelTime = 0;
+    game.combo = 0;
+    game.paused = false;
+    totalScore = 0;
+    speedMul = level > 1 ? Math.pow(1.08, level - 1) : 1; // 从第 2 关起鱼速每关 +8%
+    waveT = 15;
+    resetHuntState();
+    rebuildFish(level); // 鱼群重新生成
+    levelPanel.classList.remove('show');
+    updateGoalHud();
+    updateComboHud();
+    setTimeHud();
+  }
+
+  function showPanel(title, info, buttons) {
+    document.getElementById('panel-title').textContent = title;
+    document.getElementById('panel-info').textContent = info;
+    const box = document.getElementById('panel-btns');
+    box.innerHTML = '';
+    buttons.forEach(function (b) {
+      const el = document.createElement('button');
+      el.className = 'panel-btn';
+      el.textContent = b.text;
+      el.addEventListener('click', b.action);
+      box.appendChild(el);
+    });
+    levelPanel.classList.add('show');
+  }
+
+  function levelClear() {
+    game.paused = true; // 立即暂停游戏
+    game.totalScoreAll += totalScore;     // 累计通关成绩
+    game.totalTimeAll += game.levelTime;
+    if (game.level >= LEVELS.length) { startVictory(); return; } // 第 7 关 → 通关动画
+    showPanel('第 ' + game.level + ' 关通过！',
+      '本关得分 ' + totalScore + ' · 用时 ' + game.levelTime.toFixed(1) + ' 秒', [
+      { text: '下一关', action: function () { startLevel(game.level + 1); } },
+      { text: '重新开始本关', action: function () { startLevel(game.level); } }
+    ]);
+  }
+
+  function levelFail() {
+    game.paused = true;
+    showPanel('挑战失败', '得分 ' + totalScore + ' / ' + game.goal + '，还差 ' + (game.goal - totalScore) + ' 分', [
+      { text: '重试本关', action: function () { startLevel(game.level); } },
+      { text: '回到开始页面', action: backToStart }
+    ]);
+  }
+
+  function backToStart() {
+    if (cinematic.active) endVictory(); // 恢复场景色调、灯光与 HUD
+    game.totalScoreAll = 0;
+    game.totalTimeAll = 0;
+    startLevel(1);
+    game.started = false; // 回到开始页面，等待点击“开始游戏”
+    startScreen.classList.remove('hidden');
+  }
+
+  document.getElementById('btn-start').addEventListener('click', function () {
+    startScreen.classList.add('hidden'); // 开始界面淡出
+    if (!game.started) { startLevel(1); game.started = true; } // 从第 1 关开始
+  });
+  document.getElementById('btn-replay').addEventListener('click', function () {
+    backToStart(); // 再玩一次：恢复场景并回到开始页面
+  });
+
+  // ---------- 通关动画：仅第 7 关通过后触发 ----------
+  const cinematic = { active: false, t: 0, jumped: [], textShown: false,
+    sunI0: 0, sunC0: null, fogC0: null, ambI0: 0, audioCtx: null };
+  const CIN_WARM_SUN = new THREE.Color(0xffcf96);
+  const CIN_WARM_FOG = new THREE.Color(0xe8875c);
+  const victoryEl = document.getElementById('victory-screen');
+  const fishHudEl = document.getElementById('fish-hud');
+  const CIN_JUMP_TIMES = [1.5, 2.4, 3.3, 4.1, 4.8]; // 鱼跃出水时刻
+
+  function startVictory() {
+    cinematic.active = true;
+    cinematic.t = 0;
+    cinematic.jumped = CIN_JUMP_TIMES.map(function () { return false; });
+    cinematic.textShown = false;
+    cinematic.sunI0 = sunLight.intensity;
+    cinematic.sunC0 = sunLight.color.clone();
+    cinematic.fogC0 = scene.fog.color.clone();
+    cinematic.ambI0 = ambient.intensity;
+    fishHudEl.style.display = 'none';   // 隐藏 HUD
+    crosshairGroup.visible = false;
+    reachTip.style.display = 'none';
+    playVictoryAudio();
+  }
+
+  function endVictory() {
+    cinematic.active = false;
+    sunLight.intensity = cinematic.sunI0;
+    sunLight.color.copy(cinematic.sunC0);
+    scene.fog.color.copy(cinematic.fogC0);
+    ambient.intensity = cinematic.ambI0;
+    fishHudEl.style.display = '';
+    crosshairGroup.visible = true;
+    victoryEl.classList.remove('show');
+    if (cinematic.audioCtx) {
+      try { cinematic.audioCtx.close(); } catch (e) { /* 忽略 */ }
+      cinematic.audioCtx = null;
+    }
+  }
+
+  // WebAudio 合成的舒缓音效：温暖和弦垫 + 五声音阶琶音（无外部文件）
+  function playVictoryAudio() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      cinematic.audioCtx = ctx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0, ctx.currentTime);
+      master.gain.linearRampToValueAtTime(0.16, ctx.currentTime + 2);
+      master.gain.setValueAtTime(0.16, ctx.currentTime + 7);
+      master.gain.linearRampToValueAtTime(0, ctx.currentTime + 10);
+      master.connect(ctx.destination);
+      [261.63, 329.63, 392.0, 493.88].forEach(function (freq, i) { // 和弦垫 C E G B
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.detune.value = (i - 1.5) * 3;
+        const g = ctx.createGain();
+        g.gain.value = 0.05;
+        osc.connect(g); g.connect(master);
+        osc.start(); osc.stop(ctx.currentTime + 10.2);
+      });
+      [523.25, 659.25, 783.99, 1046.5].forEach(function (freq, i) { // 琶音铃音
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        const g = ctx.createGain();
+        const t0 = ctx.currentTime + 1.3 + i * 1.1;
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(0.08, t0 + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.7);
+        osc.connect(g); g.connect(master);
+        osc.start(t0); osc.stop(t0 + 1.8);
+      });
+    } catch (e) { /* 环境不支持音频时静默跳过 */ }
+  }
+
+  function updateCinematic(dt, t) {
+    cinematic.t += dt;
+    const T = cinematic.t;
+    const p = heron.group.position;
+
+    // 走向沙洲中央
+    p.x += (0 - p.x) * Math.min(1, dt * 1.5);
+    p.z += (0 - p.z) * Math.min(1, dt * 1.5);
+    const gh = groundHeight(p.x, p.z);
+    if (gh !== null) p.y += (gh - 0.02 - p.y) * Math.min(1, dt * 2.5);
+
+    // 面向镜头
+    const yawToCam = Math.atan2(camera.position.x - p.x, camera.position.z - p.z);
+    heron.group.rotation.y = turnToward(heron.group.rotation.y, yawToCam, dt * 1.2);
+
+    // 姿态时间线：0-2s 脖子伸缩 2 次 → 2-4s 翅膀展开扑棱 2 下 → 4s 起仰头鸣叫
+    let theta, headPitch;
+    if (T < 2) {
+      const e = 0.45 - 0.35 * Math.cos(T * Math.PI * 2);
+      theta = HUNCHED.map(function (h, i) { return h + (ALERT[i] - h) * e; });
+      headPitch = -0.32;
+    } else if (T < 4) {
+      theta = HUNCHED.map(function (h, i) { return h + (ALERT[i] - h) * 0.45; });
+      headPitch = -0.32;
+    } else {
+      const k = Math.min(1, (T - 4) / 1.2);
+      const e = 0.45 + 0.45 * k;
+      theta = HUNCHED.map(function (h, i) { return h + (ALERT[i] - h) * e; });
+      headPitch = -0.32 - 0.8 * k; // 仰头（喙指向上方，鸣叫姿态）
+    }
+    applyPose({ theta: theta, stretch: 1.25, lunge: 0, crouch: 0, headPitch: headPitch, lookY: 0 }, t, 0);
+    heron.head.rotation.y = Math.sin(T * 2.6) * 0.12; // 鸣叫时头部轻晃
+
+    // 翅膀展开扑棱 2 下（2~4 秒），随后收拢
+    let spread = 0;
+    if (T >= 2 && T < 4) {
+      const k = Math.min(1, (T - 2) / 0.5);
+      spread = k * (0.72 + 0.38 * Math.abs(Math.sin((T - 2) * Math.PI * 2)));
+    } else if (T >= 4) {
+      spread = Math.max(0, 1.1 * (1 - (T - 4) / 0.5));
+    }
+    heron.wings.forEach(function (w) {
+      w.rotation.z = Math.sign(w.position.x) * (-0.06 + spread);
+    });
+
+    // 周围水面 3~5 条鱼依次跃出再落下
+    CIN_JUMP_TIMES.forEach(function (jt, i) {
+      if (T >= jt && !cinematic.jumped[i]) {
+        cinematic.jumped[i] = true;
+        const alive = fishList.filter(function (f) { return f.alive && f.state === 'swim'; });
+        const f = alive[Math.floor(Math.random() * alive.length)];
+        if (f) {
+          const ang = Math.random() * Math.PI * 2;
+          const rr = Math.sqrt(1.15 + Math.random() * 0.25);
+          f.group.position.set(Math.cos(ang) * 6.5 * rr, -0.16, Math.sin(ang) * 5.2 * rr);
+          f.heading = ang + Math.PI / 2 + (Math.random() - 0.5) * 0.6;
+          f.state = 'jump';
+          f.vel.set(Math.sin(f.heading) * 1.2, 2.6 + Math.random() * 0.5, Math.cos(f.heading) * 1.2);
+          spawnSplash({ x: f.group.position.x, z: f.group.position.z }, 0.4);
+          spawnRipple({ x: f.group.position.x, z: f.group.position.z }, 0.35);
+        }
+      }
+    });
+
+    // 色调变暖：夕阳余晖加强
+    const wt = Math.min(1, T / 3);
+    sunLight.intensity = cinematic.sunI0 + 0.35 * wt;
+    sunLight.color.copy(cinematic.sunC0).lerp(CIN_WARM_SUN, wt);
+    scene.fog.color.copy(cinematic.fogC0).lerp(CIN_WARM_FOG, wt);
+    ambient.intensity = cinematic.ambI0 + 0.2 * wt;
+
+    // 相机：从夜鹭特写缓慢拉远升高到沙洲湖面全景
+    const ks = Math.min(1, T / 6); const k2 = ks * ks * (3 - 2 * ks);
+    const scale = 0.30 + 1.1 * k2;
+    CAM_POS_T.set(p.x + camOffset.x * scale, p.y + camOffset.y * scale + 2.4 * k2, p.z + camOffset.z * scale);
+    camera.position.lerp(CAM_POS_T, Math.min(1, dt * 5));
+    LOOK_TMP.set(p.x, p.y + 0.35 + 0.35 * k2, p.z);
+    lookSm.lerp(LOOK_TMP, Math.min(1, dt * 5));
+    camera.lookAt(lookSm);
+
+    // 约 6 秒后通关文字淡入
+    if (T >= 6 && !cinematic.textShown) {
+      cinematic.textShown = true;
+      const mins = Math.floor(game.totalTimeAll / 60);
+      const secs = Math.round(game.totalTimeAll % 60);
+      document.getElementById('victory-stats').textContent =
+        '总得分 ' + game.totalScoreAll + ' · 总用时 ' + mins + ' 分 ' + secs + ' 秒';
+      victoryEl.classList.add('show');
+    }
+  }
+
+  function spawnScorePop(worldPos, score) {
+    const v = worldPos.clone();
+    v.y += 0.3;
+    v.project(camera);
+    const el = document.createElement('div');
+    el.className = 'score-pop';
+    el.textContent = '+' + score;
+    el.style.left = ((v.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+    el.style.top = ((-v.y * 0.5 + 0.5) * window.innerHeight) + 'px';
+    document.body.appendChild(el);
+    setTimeout(function () { el.remove(); }, 1000);
+  }
+
+  // ---------- 捕食判定：喙尖到鱼的水平距离小于鱼半径的 1.3 倍都算命中，只取最近 ----------
+  function tryCatchFish(tip) {
+    let best = null, bestD = Infinity;
+    for (const f of fishList) {
+      if (!f.alive) continue;
+      const dx = f.group.position.x - tip.x, dz = f.group.position.z - tip.z;
+      const d = Math.hypot(dx, dz); // 鱼在水面平面游动，只算水平距离（喙尖入水深度不计）
+      const hitR = 1.3 * 0.5 * f.size; // 鱼半径 ≈ 半身长
+      if (d < hitR && d < bestD) { bestD = d; best = f; }
+    }
+    if (!best) return false;
+    best.alive = false;
+    best.state = 'caught';
+    best.caughtT = 0; // 被叼住：挣扎甩尾两下再消失
+    best.respawnT = best.type === 'small' ? 3 : best.type === 'big' ? 8 : 4;
+    spawnStars(best.group.position);
+    spawnScorePop(best.group.position, best.score);
+    addScore(best.score);
+    game.combo++; // 连击：连续命中的次数
+    updateComboHud();
+    return true;
+  }
+
+  function removeFish(idx) {
+    const f = fishList[idx];
+    scene.remove(f.group);
+    f.group.traverse(function (o) {
+      if (o.material) o.material.dispose();
+      if (o.geometry) o.geometry.dispose();
+    });
+    fishList.splice(idx, 1);
+  }
+
+  function respawnFish(f) {
+    const p = randomWaterPos();
+    f.group.position.set(p.x, f.baseY, p.z);
+    f.heading = Math.random() * Math.PI * 2;
+    f.targetHeading = f.heading;
+    f.state = 'swim';
+    f.alive = true;
+    f.group.visible = true;
+    if (f.type === 'jumper') f.t1 = 2 + Math.random() * 2;
+  }
+
+  const billPos = new THREE.Vector3();
+  let waveT = 15, speedMul = 1; // 难度曲线：每 15 秒一波
+
+  function updateWave(dt) {
+    if (!game.started) return; // 开始页面前难度波不推进
+    waveT -= dt;
+    if (waveT > 0) return;
+    waveT = 15;
+    speedMul = Math.min(1.6, speedMul * 1.06); // 鱼群游速小幅提升
+    // 大鱼和跳鱼比例逐波上升（金鱼出现频率不变）
+    const bigs = fishList.filter(function (f) { return f.type === 'big'; }).length;
+    const jumpers = fishList.filter(function (f) { return f.type === 'jumper'; }).length;
+    if (bigs < 4 && jumpers < 3) {
+      if (bigs <= jumpers) makeFish('big', 0x4a6a55, 1.05, { baseY: -0.2 });
+      else makeFish('jumper', 0x6b5a3e, 0.7, { jumpDelay: 2.5 });
+    }
+  }
+
+  function updateFish(t, dt) {
+    heron.billTip.getWorldPosition(billPos);
+    updateWave(dt);
+
+    // 金鱼：每 20 秒随机出现一只，5 秒后消失
+    goldTimer -= dt;
+    if (goldTimer <= 0 && !fishList.some(function (f) { return f.type === 'gold'; })) {
+      goldTimer = 20;
+      const g = makeFish('gold', 0xffc23e, 0.7, { glow: 0.9, glowSprite: true, baseY: -0.14 });
+      g.goldLife = 5;
+    }
+
+    for (let i = fishList.length - 1; i >= 0; i--) {
+      const f = fishList[i];
+      if (f.alive) {
+        f.tail.rotation.y = Math.sin(t * WAG_SPEED[f.type] + f.phase) * 0.45;
+      } else if (f.state === 'caught') {
+        // 被叼住：挣扎甩尾两下再消失
+        f.caughtT += dt;
+        f.tail.rotation.y = Math.sin(f.caughtT * 34) * 0.9;
+        f.group.rotation.z = Math.sin(f.caughtT * 34) * 0.15;
+        if (f.caughtT > 0.38) {
+          f.group.rotation.z = 0;
+          f.group.visible = false;
+          f.state = 'gone';
+          if (f.type === 'gold') removeFish(i); // 金鱼不重生，等下个周期
+        }
+        continue;
+      } else {
+        f.respawnT -= dt;
+        if (f.respawnT <= 0) respawnFish(f);
+        continue;
+      }
+
+      if (f.type === 'small') {
+        // 小鱼：多、快、随机方向乱窜（游速随难度波提升）
+        doWander(f, dt, 2.2 * speedMul, 3, 0.8, 2);
+      } else if (f.type === 'big') {
+        // 大鱼：慢游，喙尖靠近或落水声惊动就加速逃走
+        if (f.state === 'flee') {
+          f.t1 -= dt;
+          steerBounds(f);
+          f.heading = turnToward(f.heading, f.targetHeading, dt * 4);
+          moveForward(f, dt, 2.4 * Math.min(1.25, speedMul));
+          if (f.t1 <= 0) f.state = 'swim';
+        } else {
+          if (f.group.position.distanceTo(billPos) < 1.3) {
+            f.state = 'flee';
+            f.t1 = 1.8;
+            f.targetHeading = Math.atan2(
+              f.group.position.x - billPos.x, f.group.position.z - billPos.z);
+          } else {
+            doWander(f, dt, 0.5 * speedMul, 1, 2, 4);
+          }
+        }
+      } else if (f.type === 'jumper') {
+        // 跳鱼：水下慢游，周期性跃出水面做抛物线再落回
+        if (f.state === 'swim') {
+          doWander(f, dt, 0.7 * speedMul, 1.5, 2, 3);
+          f.t1 -= dt;
+          if (f.t1 <= 0) {
+            f.state = 'jump';
+            f.vel.set(Math.sin(f.heading) * 1.5, 2.3 + Math.random() * 0.6, Math.cos(f.heading) * 1.5);
+            const p = f.group.position;
+            spawnSplash({ x: p.x, z: p.z }, 0.35);
+            spawnRipple({ x: p.x, z: p.z }, 0.3);
+          }
+        } else {
+          f.vel.y -= 6.5 * dt;
+          f.group.position.addScaledVector(f.vel, dt);
+          f.group.rotation.x = -Math.atan2(f.vel.y, Math.hypot(f.vel.x, f.vel.z)); // 顺着抛物线俯仰
+          if (f.group.position.y <= f.baseY && f.vel.y < 0) {
+            f.group.position.y = f.baseY;
+            f.group.rotation.x = 0;
+            f.state = 'swim';
+            f.t1 = 2.5 + Math.random() * 2;
+            const p = f.group.position;
+            spawnSplash({ x: p.x, z: p.z }, 0.4);
+            spawnRipple({ x: p.x, z: p.z }, 0.35);
+          }
+        }
+      } else if (f.type === 'gold') {
+        // 金鱼：慢游 + 发光呼吸，限时 5 秒
+        doWander(f, dt, 0.4, 1.5, 2, 4);
+        f.goldLife -= dt;
+        const k = Math.max(0.01, Math.min(1, f.goldLife / 0.6));
+        f.group.scale.setScalar(0.7 * k);
+        if (f.glowSprite) {
+          f.glowSprite.material.opacity = k * (0.7 + Math.sin(t * 6) * 0.3);
+          f.glowSprite.scale.setScalar(1.25 + Math.sin(t * 5) * 0.3);
+        }
+        if (f.goldLife <= 0) removeFish(i);
+      }
+    }
+  }
+
+  // ---------- 动画循环 ----------
+  const clock = new THREE.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05); // 限幅防切后台后跳帧
+    const t = clock.elapsedTime;
+
+    updateWater(t);
+    if (cinematic.active) {
+      // 通关动画：夜鹭动作 + 鱼跃 + 镜头拉远（玩法已冻结）
+      updateCinematic(dt, t);
+      updateFish(t, dt);
+      updateSplash(dt);
+      updateRipples(dt);
+    } else if (game.started && !game.paused) {
+      // 关卡计时
+      game.timeLeft -= dt;
+      game.levelTime += dt;
+      if (game.timeLeft <= 0) { game.timeLeft = 0; setTimeHud(); levelFail(); } else setTimeHud();
+
+      updateMovement(dt);
+      // 站立高度每帧平滑贴合地形（沙洲顶面 / 浅水带 / 小水塘）
+      const ghHere = groundHeight(heron.group.position.x, heron.group.position.z);
+      if (ghHere !== null) {
+        heron.group.position.y += (ghHere - 0.02 - heron.group.position.y) * Math.min(1, dt * 8);
+      }
+      updateAiming(dt);
+      updateHunt(t, dt);
+      updateSplash(dt);
+      updateRipples(dt);
+      updateFish(t, dt);
+      updateStars(dt);
+    } else {
+      // 开始页面 / 暂停面板：鱼群与粒子作为背景氛围继续，夜鹭保持待机呼吸
+      updateFish(t, dt);
+      updateSplash(dt);
+      updateRipples(dt);
+      updateStars(dt);
+      if (!game.started && !game.paused) {
+        hunt.cur = hunt.cur || idlePose(t);
+        hunt.cur = lerpPose(hunt.cur, idlePose(t), Math.min(1, dt * 4));
+        applyPose(hunt.cur, t, 0);
+      }
+    }
+
+    // 芦苇随风摆动：风力缓慢起伏并带阵风，摆幅与风匹配
+    const wind = 0.55 + 0.35 * Math.sin(t * 0.11) + 0.25 * Math.sin(t * 0.37 + 1.3);
+    for (let i = 0; i < reeds.length; i++) {
+      const r = reeds[i];
+      r.pivot.rotation.z = r.lean + Math.sin(t * r.speed + r.phase) * (0.035 + 0.05 * wind);
+      r.pivot.rotation.x = Math.cos(t * r.speed * 0.8 + r.phase) * (0.02 + 0.028 * wind);
+    }
+
+    // 镜头：通关动画时由动画脚本控制，其余时间第三人称跟随（位置插值平滑）
+    if (!cinematic.active) {
+      const zoomTarget = hunt.state === 'charging' ? 0.25 + 0.25 * hunt.chargeT : 0;
+      hunt.zoom += (zoomTarget - hunt.zoom) * Math.min(1, dt * 3);
+      if (hunt.lookBias > 0) hunt.lookBias = Math.max(0, hunt.lookBias - dt * 0.5);
+      const hp = heron.group.position;
+      const kOff = 1 - 0.42 * hunt.zoom;
+      CAM_POS_T.set(hp.x + camOffset.x * kOff, hp.y + camOffset.y * kOff, hp.z + camOffset.z * kOff);
+      camera.position.lerp(CAM_POS_T, Math.min(1, dt * 4));
+      LOOK_TMP.set(hp.x + CAM_FWD.x * 1.9, hp.y + 0.55, hp.z + CAM_FWD.z * 1.9); // 看向夜鹭前方一点
+      if (hunt.splashPos && hunt.lookBias > 0) LOOK_TMP.lerp(hunt.splashPos, hunt.lookBias * 0.55);
+      lookSm.lerp(LOOK_TMP, Math.min(1, dt * 5));
+      camera.lookAt(lookSm);
+    }
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // ---------- 自适应窗口 ----------
+  window.addEventListener('resize', function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>夜鹭捕鱼｜观鸟meme</title>
+  <meta name="description" content="操纵夜鹭在黄昏湖面移动和瞄准，伸长脖子捕捉不同种类的鱼。">
+  <link rel="icon" href="assets/birdwatch-logo.jpg"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="game-page.css">
+</head>
+<body class="game-page">
+  <header><a class="brand" href="index.html"><span class="logo"><img src="assets/birdwatch-logo.jpg" alt=""></span>观鸟<span>meme</span></a><div class="actions"><a class="ghost link-button" href="games.html">返回游戏盒子</a></div></header>
+  <main class="game-shell night-heron-game-shell">
+    <section class="game-heading"><div><p class="eyebrow">🌆 3D 捕鱼小游戏</p><h1>夜鹭捕鱼</h1><p>在黄昏湖面寻找鱼群，移动夜鹭、瞄准水面，按住蓄力后松开完成捕食。</p></div><button id="fullscreenGame" class="primary" type="button">全屏游戏</button></section>
+    <div class="game-frame-wrap"><iframe id="gameFrame" class="game-frame" src="games/night-heron-fishing/?v=20260914a" title="夜鹭捕鱼3D小游戏" allow="fullscreen" allowfullscreen></iframe></div>
+    <p class="game-tip">电脑：WASD 移动，鼠标瞄准，按住并松开完成捕鱼。手机：方向键移动，滑动画面瞄准，按住“捕鱼”按钮蓄力。</p>
+  </main>
+  <script>document.getElementById('fullscreenGame').addEventListener('click',()=>{const frame=document.getElementById('gameFrame');if(frame.requestFullscreen)frame.requestFullscreen();});</script>
+  <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"1e97f2c4a22e40c8a8d3b1c95b1ea1ed"}'></script>
+</body>
+</html>
