@@ -1,0 +1,1809 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>珠颈斑鸠街区历险记</title>
+<style>
+  /* ================= 页面样式：画布等比缩放自适应窗口 ================= */
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  body {
+    background: radial-gradient(1200px 700px at 50% 40%, #4a4038 0%, #2b2420 60%, #1c1714 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  #game {
+    background: #9fd4ec;
+    border-radius: 12px;
+    box-shadow: 0 18px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
+    display: block;
+  }
+  .mobile-controls { display: none; position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+  .mobile-controls button { position: absolute; width: 58px; height: 58px; border: 1px solid rgba(255,255,255,.6); border-radius: 50%; background: rgba(24,61,39,.72); color: #fff; font: 800 25px/1 sans-serif; box-shadow: 0 4px 14px rgba(0,0,0,.25); pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+  .mobile-controls button:active { background: rgba(182,236,19,.88); color: #173d27; transform: scale(.94); }
+  .control-left { left: 18px; bottom: 28px; }
+  .control-right { left: 142px; bottom: 28px; }
+  .control-up { left: 80px; bottom: 91px; }
+  .control-down { left: 80px; bottom: 12px; }
+  .control-flap { right: 24px; bottom: 34px; width: 78px !important; height: 78px !important; font-size: 17px !important; }
+  @media (hover: none), (pointer: coarse) { .mobile-controls { display: block; } }
+</style>
+</head>
+<body>
+<canvas id="game" width="1280" height="720"></canvas>
+<div class="mobile-controls" aria-label="手机游戏控制器">
+  <button class="control-left" data-control="left" aria-label="向左">◀</button>
+  <button class="control-right" data-control="right" aria-label="向右">▶</button>
+  <button class="control-up" data-control="up" aria-label="向上">▲</button>
+  <button class="control-down" data-control="down" aria-label="向下">▼</button>
+  <button class="control-flap" data-control="jump" aria-label="扑翼加速">扑翼</button>
+</div>
+<noscript>需要启用 JavaScript 才能运行本游戏。</noscript>
+<script>
+(() => {
+'use strict';
+
+/* ============================================================================
+ * 1. CONFIG —— 全部可调数值集中在此（含中文注释，方便调难度/节奏）
+ * ========================================================================== */
+const CONFIG = {
+  VIEW_W: 1280, VIEW_H: 720,      // 画布逻辑分辨率（等比缩放自适应窗口）
+  WORLD_WIDTH: 3400,              // 横向卷轴世界总宽
+  GOAL_SCORE: 1000,               // 通关积分
+  DEBUG: false,                   // 调试模式：显示安全区/状态；[ ]加减分 K召唤游隼 H传送树林
+
+  // 三个行走层的脚底 Y（地面两条街 + 楼房窗台）
+  ROW_Y: { street: 700, sidewalk: 604, sill: 452 },
+
+  // ---- 珠颈斑鸠 ----
+  DOVE: {
+    speed: 240,        // 常规移动速度 px/s
+    dashMul: 1.85,     // 扑翼加速倍率（240*1.85=444 > 游隼俯冲 400，可用来逃生）
+    dashTime: 0.55,    // 加速持续时间 s
+    dashCd: 1.2,       // 扑翼加速冷却 s
+    flyTime: 0.55,     // 飞上窗台耗时 s
+    dropTime: 0.42,    // 跳回地面耗时 s
+    eatRange: 38,      // 拾取食物的横向半径
+    safeMargin: 36,    // “完全进入”安全区所需的内缩距离（保证要整个身子进树林）
+  },
+
+  // ---- 游隼（整体难度中等偏下）----
+  FALCON: {
+    safeTime: 8,             // 开局安全期 s
+    warnTime: 1.5,           // 来袭预警时长 s（阴影+啸叫+红色警示框）
+    stayTime: 4.5,           // 每次巡逻在场上停留约 4.5s 后飞出画面
+    gapMin: 7, gapMax: 11,   // 离场后到下次预警的间隔（合计约 14±2s 一轮巡逻）
+    enterTime: 1.0,          // 入场飞入耗时 s
+    patrolTimeMin: 1.0,      // 巡航最短 s
+    patrolTimeMax: 1.8,      // 巡航最长 s（之后俯冲）
+    glideSpeed: 320,         // 巡航滑翔速度
+    diveSpeed: 400,          // 俯冲速度（必须略低于斑鸠扑翼加速 444）
+    steerRate: 2.1,          // 俯冲转向速率（惯性转向，不能瞬瞄）
+    catchRadius: 38,         // 隼爪与斑鸠身体的重叠判定半径
+  },
+
+  // ---- 食物系统 ----
+  FOOD: {
+    CAP: 12,                // 地图食物同时存在上限
+    LIFE: 15,               // 食物未被吃掉后消失时间 s
+    sillInterval: 1.5,      // 窗台撒落生成间隔（主力来源，频率高）
+    streetInterval: 5.0,    // 路面掉落生成间隔（频率低）
+    sillCluster: [3, 6],    // 窗台一次撒落的粒数范围
+    streetCluster: [1, 2],  // 路面一次掉落的粒数范围
+    INFO: {
+      millet:  { label: '小米',   score: 1 },   // 小米 1 分
+      corn:    { label: '玉米',   score: 2 },   // 玉米 2 分
+      peanut:  { label: '花生米', score: 3 },   // 花生米 3 分
+    },
+    // 难度三档：分值越高概率越低；随积分推进高级食物权重下降 + 整体刷新率约 -15%/档
+    TIERS: [
+      { minScore: 0,   weights: { millet: 6,   corn: 3,   peanut: 1   }, rateMul: 1    },
+      { minScore: 300, weights: { millet: 7,   corn: 2.2, peanut: 0.6 }, rateMul: 0.85 },
+      { minScore: 700, weights: { millet: 7.5, corn: 1.7, peanut: 0.4 }, rateMul: 0.72 },
+    ],
+  },
+
+  // ---- 场景布局（x 为世界坐标；groves 为小树林安全区）----
+  SCENE: {
+    buildings: [   // 居民楼：x0..x1 占位，top 楼顶 Y（楼底统一 562）
+      { x0: 120,  x1: 600,  top: 205, wall: '#F5E7CE', trim: '#D9A468' },
+      { x0: 900,  x1: 1440, top: 165, wall: '#EDE4F0', trim: '#B49BC8' },
+      { x0: 1680, x1: 2240, top: 195, wall: '#F7E9CF', trim: '#D9A468' },
+      { x0: 2500, x1: 3040, top: 175, wall: '#EAE9EF', trim: '#AEB8D2' },
+    ],
+    groves: [      // 小树林（乔木+灌木）：cx 中心 / width 安全带宽度
+      { cx: 750,  width: 270 },
+      { cx: 1560, width: 220 },
+      { cx: 2370, width: 230 },
+    ],
+  },
+};
+
+/* ============================================================================
+ * 2. 通用工具
+ * ========================================================================== */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const lerp = (a, b, k) => a + (b - a) * k;
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const easeOut = k => 1 - (1 - k) * (1 - k);
+const easeIn  = k => k * k;
+const easeInOut = k => k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+// 确定性伪随机（场景装饰用，保证每次打开画面一致）
+function makeRng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+/* ============================================================================
+ * 3. 画布与自适应缩放
+ * ========================================================================== */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+function fitCanvas() {
+  const s = Math.min(window.innerWidth / CONFIG.VIEW_W, window.innerHeight / CONFIG.VIEW_H);
+  canvas.style.width  = Math.floor(CONFIG.VIEW_W * s) + 'px';
+  canvas.style.height = Math.floor(CONFIG.VIEW_H * s) + 'px';
+}
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
+
+/* ============================================================================
+ * 4. 输入管理（键盘 + 鼠标 + 触屏）
+ * ========================================================================== */
+const Input = {
+  down: new Set(), pressed: new Set(),
+  mouse: { x: 0, y: 0, clicked: false },
+  map: { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+         ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Space: 'jump' },
+  init() {
+    window.addEventListener('keydown', e => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
+      Sound.ensure();
+      if (e.repeat) return;
+      const n = this.map[e.code];
+      if (n) { this.down.add(n); this.pressed.add(n); }
+      this.onKey(e.code);
+    });
+    window.addEventListener('keyup', e => { const n = this.map[e.code]; if (n) this.down.delete(n); });
+    canvas.addEventListener('mousemove', e => { const p = toLogical(e); this.mouse.x = p.x; this.mouse.y = p.y; });
+    canvas.addEventListener('mousedown', e => { const p = toLogical(e); this.mouse.x = p.x; this.mouse.y = p.y; this.mouse.clicked = true; Sound.ensure(); });
+    canvas.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'mouse') {
+        e.preventDefault();
+        const p = toLogical(e); this.mouse.x = p.x; this.mouse.y = p.y; this.mouse.clicked = true; pendingClick = p; Sound.ensure();
+      }
+    });
+    document.querySelectorAll('[data-control]').forEach(button => {
+      const control = button.dataset.control;
+      const press = e => { e.preventDefault(); Sound.ensure(); this.down.add(control); this.pressed.add(control); button.setPointerCapture?.(e.pointerId); };
+      const release = e => { e.preventDefault(); this.down.delete(control); };
+      button.addEventListener('pointerdown', press);
+      button.addEventListener('pointerup', release);
+      button.addEventListener('pointercancel', release);
+      button.addEventListener('lostpointercapture', release);
+    });
+  },
+  onKey(code) {
+    if (code === 'KeyM') Sound.toggleMute();
+    if (code === 'KeyP' || code === 'Escape') {
+      if (Game.state === 'play') Game.state = 'pause';
+      else if (Game.state === 'pause') Game.state = 'play';
+    }
+    if (code === 'KeyR' && ['play', 'pause', 'fail', 'win'].includes(Game.state)) { Sound.click(); Game.startRun(); }
+    if (code === 'Enter') {
+      if (Game.state === 'title') { Sound.click(); Game.startRun(); }
+      else if (Game.state === 'fail' || Game.state === 'win') { Sound.click(); Game.startRun(); }
+    }
+    if (CONFIG.DEBUG) {
+      if (code === 'BracketRight') Game.addScore(100, Game.dove.x, Game.dove.y - 60);
+      if (code === 'BracketLeft') Game.score = Math.max(0, Game.score - 100);
+      if (code === 'KeyK') Game.falcon.timer = 0.01;
+      if (code === 'KeyH') {
+        const g = GROVES.reduce((a, b) => Math.abs(b.cx - Game.dove.x) < Math.abs(a.cx - Game.dove.x) ? b : a);
+        Game.dove.x = g.cx; Game.dove.y = CONFIG.ROW_Y[Game.dove.row]; Game.dove.state = 'ground';
+      }
+    }
+  },
+  axisX() { return (this.down.has('right') ? 1 : 0) - (this.down.has('left') ? 1 : 0); },
+  consume(n) { if (this.pressed.has(n)) { this.pressed.delete(n); return true; } return false; },
+  endFrame() { this.pressed.clear(); this.mouse.clicked = false; },
+};
+function toLogical(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * CONFIG.VIEW_W, y: (e.clientY - r.top) / r.height * CONFIG.VIEW_H };
+}
+
+/* ============================================================================
+ * 5. 音效（WebAudio 程序化合成，零外部文件；M 键 / 右上角按钮静音）
+ * ========================================================================== */
+const Sound = {
+  ctx: null, master: null, muted: false, _noiseBuf: null,
+  ensure() {
+    if (!this.ctx) {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = this.muted ? 0 : 0.9;
+        this.master.connect(this.ctx.destination);
+      } catch (e) { /* 无音频环境时静默降级 */ }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  toggleMute() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.9; },
+  tone(o) {
+    if (!this.ctx || this.muted) return;
+    const t0 = this.ctx.currentTime + (o.delay || 0);
+    const osc = this.ctx.createOscillator(), g = this.ctx.createGain();
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.f0, t0);
+    if (o.f1 && o.f1 !== o.f0) osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.f1), t0 + o.dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.vol || 0.2, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    osc.connect(g); g.connect(this.master);
+    osc.start(t0); osc.stop(t0 + o.dur + 0.05);
+  },
+  noise(o) {
+    if (!this.ctx || this.muted) return;
+    if (!this._noiseBuf) {
+      const len = this.ctx.sampleRate * 0.6;
+      this._noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = this._noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const t0 = this.ctx.currentTime + (o.delay || 0);
+    const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf; src.loop = true;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = o.freq || 500; bp.Q.value = o.q || 1;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.vol || 0.2, t0 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.start(t0); src.stop(t0 + o.dur + 0.05);
+  },
+  // 啄食声：三种食物不同音高（小米高 / 玉米中 / 花生低）
+  peck(kind) {
+    if (kind === 'millet') this.tone({ f0: 1650, f1: 1150, dur: 0.07, type: 'triangle', vol: 0.22 });
+    else if (kind === 'corn') this.tone({ f0: 1250, f1: 880, dur: 0.09, type: 'triangle', vol: 0.24 });
+    else { this.tone({ f0: 850, f1: 560, dur: 0.1, type: 'triangle', vol: 0.26 }); this.tone({ f0: 190, f1: 140, dur: 0.05, type: 'square', vol: 0.1 }); }
+  },
+  flap() { this.noise({ dur: 0.13, freq: 420, q: 1.2, vol: 0.22 }); this.noise({ dur: 0.1, freq: 300, q: 1, vol: 0.15, delay: 0.09 }); },
+  screech() {  // 游隼尖锐啸叫（两声下滑）
+    this.tone({ f0: 2100, f1: 760, dur: 0.3, type: 'sawtooth', vol: 0.13 });
+    this.tone({ f0: 2450, f1: 900, dur: 0.22, type: 'sawtooth', vol: 0.11, delay: 0.34 });
+    this.noise({ dur: 0.28, freq: 2600, q: 2, vol: 0.05 });
+  },
+  alarm() { for (let i = 0; i < 3; i++) this.tone({ f0: 940, dur: 0.09, type: 'square', vol: 0.09, delay: i * 0.19 }); },
+  hop() { this.tone({ f0: 500, f1: 720, dur: 0.08, type: 'sine', vol: 0.09 }); },
+  win() {
+    [523, 659, 784, 1047].forEach((f, i) => this.tone({ f0: f, dur: 0.18, type: 'triangle', vol: 0.2, delay: i * 0.14 }));
+    this.tone({ f0: 2093, dur: 0.45, type: 'sine', vol: 0.08, delay: 0.6 });
+  },
+  fail() {
+    this.tone({ f0: 300, f1: 96, dur: 0.7, type: 'sawtooth', vol: 0.16 });
+    this.tone({ f0: 150, f1: 58, dur: 0.5, type: 'triangle', vol: 0.22, delay: 0.05 });
+    this.noise({ dur: 0.3, freq: 220, q: 0.8, vol: 0.18 });
+  },
+  grab() { this.noise({ dur: 0.18, freq: 900, q: 0.6, vol: 0.25 }); },
+  click() { this.tone({ f0: 760, f1: 600, dur: 0.06, type: 'sine', vol: 0.15 }); },
+};
+
+/* ============================================================================
+ * 6. 精灵图替换接口（预留）
+ *    当前全部角色为矢量程序化绘制；以后想换图片，调用：
+ *      setSprite('dove', 'img/dove.png')          // 斑鸠（任意姿态共用一图）
+ *      setSprite('falcon', 'img/falcon.png')      // 游隼
+ *    图片加载完成后自动替换矢量画法；删除图片引用即可回到矢量绘制。
+ * ========================================================================== */
+const Sprites = { dove: null, falcon: null };
+function setSprite(name, url) {
+  if (!Sprites.hasOwnProperty(name)) return;
+  const img = new Image();
+  img.onload = () => { Sprites[name] = img; };
+  img.src = url;
+}
+
+/* ============================================================================
+ * 7. 场景派生数据（窗位/装饰等，用确定性随机保证画面稳定）
+ * ========================================================================== */
+const ROW_Y = CONFIG.ROW_Y;
+const BUILDINGS = CONFIG.SCENE.buildings.map((b, bi) => {
+  const rng = makeRng(1000 + bi * 77);
+  const span = b.x1 - b.x0;
+  const cols = Math.max(2, Math.floor((span - 60) / 124));
+  const startX = b.x0 + (span - (cols * 124 - 58)) / 2;
+  const windows = [];
+  for (let r = 0; r < 2; r++) {                       // 两排窗：下排带窗台可站立
+    const bottom = ROW_Y.sill - r * 118;
+    if (bottom - 80 < b.top + 14 && r === 1) break;   // 楼不够高则只有一排
+    for (let c = 0; c < cols; c++) {
+      windows.push({
+        x: startX + c * 124, bottom,
+        lit: rng() < 0.3, curtain: pickR(rng, ['#D98E8E', '#9CB8A8', '#C9A6C9', '#E0B27A']),
+        sill: r === 0,
+      });
+    }
+  }
+  return { ...b, bi, windows, doorX: b.x0 + span * (0.3 + rng() * 0.4), roofBox: rng() < 0.8, roofBox2: rng() < 0.5, lampSeed: rng() };
+});
+function pickR(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
+const GROVES = CONFIG.SCENE.groves.map((g, gi) => {
+  const rng = makeRng(5000 + gi * 131);
+  return {
+    ...g, phase: rng() * TAU,
+    x0: g.cx - g.width / 2, x1: g.cx + g.width / 2,
+    trees: [{ dx: -66, s: 1 }, { dx: 44, s: 0.82 }],
+    bushes: [{ dx: -118, s: 1 }, { dx: -8, s: 1.22 }, { dx: 106, s: 0.92 }],
+    berries: Array.from({ length: 7 }, () => ({ dx: rand(-120, 120), dy: rand(-26, -4), })),
+  };
+});
+// 远景/天空装饰
+const DECOR = (() => {
+  const rng = makeRng(20260913);
+  const mkSkyline = (par, hMin, hMax, gapMin, gapMax) => {
+    const arr = []; let x = -200; const need = CONFIG.WORLD_WIDTH * par + CONFIG.VIEW_W + 400;
+    while (x < need) { const w = 46 + rng() * 110; arr.push({ x, w, h: hMin + rng() * (hMax - hMin), tank: rng() < 0.3 }); x += w + gapMin + rng() * gapMax; }
+    return arr;
+  };
+  return {
+    clouds: Array.from({ length: 7 }, () => ({ x: rng() * 2400, y: 36 + rng() * 150, s: 0.55 + rng() * 0.9, spd: 5 + rng() * 9 })),
+    far: mkSkyline(0.15, 50, 150, 8, 30),
+    mid: mkSkyline(0.3, 80, 230, 20, 60),
+    lamps: [64, 480, 1160, 1960, 2780, 3220],
+    tufts: Array.from({ length: 46 }, () => ({ x: rng() * CONFIG.WORLD_WIDTH, s: 0.6 + rng() * 0.8 })),
+    patches: Array.from({ length: 8 }, () => ({ x: rng() * CONFIG.WORLD_WIDTH, dy: rng() * 50 })),
+    manholes: [520, 1250, 1980, 2680, 3220],
+  };
+})();
+
+/* ============================================================================
+ * 8. 粒子与飘字
+ * ========================================================================== */
+const Particles = {
+  list: [],
+  burst(kind, x, y, n, opt = {}) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, TAU), sp = rand(30, opt.speed || 130);
+      this.list.push({
+        kind, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (opt.up || 0),
+        t: 0, life: opt.life || rand(0.5, 1.1), size: opt.size || rand(3, 6),
+        rot: rand(0, TAU), vr: rand(-4, 4), color: opt.color || null, screen: !!opt.screen,
+      });
+    }
+    if (this.list.length > 400) this.list.splice(0, this.list.length - 400);
+  },
+  update(dt) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const p = this.list[i]; p.t += dt;
+      if (p.t >= p.life) { this.list.splice(i, 1); continue; }
+      if (p.kind === 'feather') { p.vy += 42 * dt; p.vx *= 0.99; p.x += (p.vx + Math.sin(p.t * 7 + p.rot) * 26) * dt; p.y += p.vy * dt; p.rot += p.vr * dt; }
+      else if (p.kind === 'spark') { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95; }
+      else if (p.kind === 'dust') { p.x += p.vx * dt; p.y += p.vy * dt * 0.4; p.vx *= 0.92; }
+      else { p.x += p.vx * dt; p.y += p.vy * dt; }
+    }
+  },
+  draw() {
+    for (const p of this.list) {
+      const k = 1 - p.t / p.life;
+      ctx.save(); ctx.globalAlpha = Math.min(1, k * 1.4);
+      if (!p.screen) ctx.translate(-Game.cam.x, 0);
+      if (p.kind === 'feather') {
+        ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.fillStyle = p.color || '#F3E4D8';
+        ctx.beginPath(); ctx.ellipse(0, 0, p.size * 1.6, p.size * 0.6, 0, 0, TAU); ctx.fill();
+      } else if (p.kind === 'spark') {
+        ctx.fillStyle = p.color || '#FFE9A8';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * k, 0, TAU); ctx.fill();
+      } else if (p.kind === 'dust') {
+        ctx.fillStyle = p.color || 'rgba(180,160,130,0.7)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1.6 - k), 0, TAU); ctx.fill();
+      } else {
+        ctx.fillStyle = p.color || '#FFFFFF';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * k, 0, TAU); ctx.fill();
+      }
+      ctx.restore();
+    }
+  },
+};
+const Floats = {
+  list: [],
+  add(x, y, txt, color) { this.list.push({ x, y, txt, color, t: 0 }); },
+  update(dt) { for (let i = this.list.length - 1; i >= 0; i--) { const f = this.list[i]; f.t += dt; if (f.t > 1) this.list.splice(i, 1); } },
+  draw() {
+    for (const f of this.list) {
+      ctx.save(); ctx.globalAlpha = 1 - f.t;
+      txt(f.txt, f.x, f.y - f.t * 46, { size: 26, weight: 700, color: f.color, align: 'center', stroke: 'rgba(60,40,20,0.75)', strokeW: 4 });
+      ctx.restore();
+    }
+  },
+};
+
+/* ============================================================================
+ * 9. 实体类：食物 / 珠颈斑鸠 / 游隼
+ * ========================================================================== */
+class Food {
+  constructor(kind, x, row, b = null) {
+    this.kind = kind; this.x = x; this.row = row; this.b = b;
+    this.baseY = ROW_Y[row]; this.age = 0; this.phase = rand(0, TAU);
+    this.dropT = row === 'sill' ? 0.45 : 0.3;   // 撒落/掉落入场动画
+  }
+  update(dt) { this.age += dt; if (this.dropT > 0) this.dropT -= dt; }
+  get dead() { return this.age >= CONFIG.FOOD.LIFE; }
+}
+
+class Dove {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = 340; this.y = ROW_Y.sidewalk; this.row = 'sidewalk'; this.building = null;
+    this.facing = 1; this.state = 'ground';   // ground | flyup | drop
+    this.moveT = 0; this.vx = 0; this.idleT = rand(2, 4); this.blinkT = rand(1, 3); this.blink = 0;
+    this.dashT = 0; this.dashCd = 0; this.peckT = 0; this.hopT = 0; this.tailKick = 0;
+    this.animT = 0; this.fly = null; this.onSillHint = false;
+  }
+  get centerY() { return this.y - 26; }        // 身体中心（碰撞判定用）
+  get dashing() { return this.dashT > 0; }
+  nearBuilding() { return BUILDINGS.findIndex(b => this.x > b.x0 - 24 && this.x < b.x1 + 24); }
+  isSafe() {   // 必须完全进入树林安全带（内缩 safeMargin）
+    const m = CONFIG.DOVE.safeMargin;
+    return GROVES.some(g => this.x > g.x0 + m && this.x < g.x1 - m);
+  }
+  startFly(bi) {
+    const b = BUILDINGS[bi];
+    this.state = 'flyup'; this.building = bi;
+    const tx = clamp(this.x, b.x0 + 30, b.x1 - 30);
+    this.fly = { t: 0, x0: this.x, y0: this.y, x1: tx, y1: ROW_Y.sill, dur: CONFIG.DOVE.flyTime };
+    this.facing = tx >= this.x ? 1 : -1;
+    Sound.flap();
+    Particles.burst('dust', this.x, this.y, 4, { size: 3, life: 0.4 });
+  }
+  startDrop() {
+    this.state = 'drop';
+    this.fly = { t: 0, x0: this.x, y0: this.y, x1: this.x + this.facing * 14, y1: ROW_Y.sidewalk, dur: CONFIG.DOVE.dropTime };
+    Sound.flap();
+  }
+  startDash() {
+    this.dashT = CONFIG.DOVE.dashTime; this.dashCd = CONFIG.DOVE.dashCd;
+    Sound.flap();
+    Particles.burst('dust', this.x, this.y, 5, { size: 3.5, life: 0.45 });
+  }
+  switchRow(to) {
+    this.row = to; this.y = ROW_Y[to]; this.hopT = 0.18;
+    Sound.hop();
+    Particles.burst('dust', this.x, this.y, 3, { size: 2.6, life: 0.35 });
+  }
+  update(dt) {
+    this.animT += dt;
+    if (this.dashCd > 0) this.dashCd -= dt;
+    if (this.dashT > 0) this.dashT -= dt;
+    if (this.peckT > 0) this.peckT -= dt;
+    if (this.hopT > 0) this.hopT -= dt;
+    if (this.tailKick > 0) this.tailKick -= dt;
+    this.blinkT -= dt;
+    if (this.blinkT <= 0) { this.blink = 0.14; this.blinkT = rand(2, 4.5); }
+    if (this.blink > 0) this.blink -= dt;
+    this.idleT -= dt;
+    if (this.idleT <= 0) { this.tailKick = 0.5; this.idleT = rand(2.5, 5); }
+
+    if (this.state === 'ground') {
+      const ax = Input.axisX();
+      const spd = CONFIG.DOVE.speed * (this.dashing ? CONFIG.DOVE.dashMul : 1);
+      this.vx = ax * spd;
+      if (ax !== 0) {
+        this.facing = ax;
+        this.x += this.vx * dt;
+        this.moveT += dt * (this.dashing ? 1.6 : 1);
+      } else this.vx = 0;
+      this.x = clamp(this.x, 46, CONFIG.WORLD_WIDTH - 46);
+      if (this.row === 'sill' && this.building != null) {
+        const b = BUILDINGS[this.building];
+        this.x = clamp(this.x, b.x0 + 28, b.x1 - 28);
+      }
+      // 上下切换层
+      if (Input.consume('up')) {
+        if (this.row === 'street') this.switchRow('sidewalk');
+        else if (this.row === 'sidewalk') {
+          const bi = this.nearBuilding();
+          if (bi >= 0) this.startFly(bi);
+        }
+      }
+      if (Input.consume('down')) {
+        if (this.row === 'sill') this.startDrop();
+        else if (this.row === 'sidewalk') this.switchRow('street');
+      }
+      // 空格：靠近楼体=扑翼飞上窗台；否则短扑翼加速（窗台上也可加速逃生）
+      if (Input.consume('jump')) {
+        if (this.row !== 'sill') {
+          const bi = this.nearBuilding();
+          if (bi >= 0) this.startFly(bi);
+          else if (this.dashCd <= 0) this.startDash();
+        } else if (this.dashCd <= 0) this.startDash();
+      }
+      Game.tryEat();
+    } else if (this.state === 'flyup' || this.state === 'drop') {
+      const f = this.fly; f.t += dt;
+      const k = clamp(f.t / f.dur, 0, 1);
+      const e = this.state === 'flyup' ? easeOut(k) : easeIn(k);
+      this.x = lerp(f.x0, f.x1, k);
+      this.y = lerp(f.y0, f.y1, e);
+      if (k >= 1) {
+        if (this.state === 'flyup') { this.row = 'sill'; this.y = ROW_Y.sill; this.onSillHint = true; }
+        else { this.row = 'sidewalk'; this.y = ROW_Y.sidewalk; this.building = null; }
+        this.state = 'ground';
+        Particles.burst('dust', this.x, this.y, 4, { size: 3, life: 0.4 });
+        Game.tryEat();
+      }
+    }
+  }
+  render() {
+    const moving = this.vx !== 0 || this.state !== 'ground';
+    let mode = 'idle';
+    if (this.state === 'flyup') mode = 'fly';
+    else if (this.state === 'drop') mode = 'drop';
+    else if (this.dashing) mode = 'dash';
+    else if (this.vx !== 0) mode = 'walk';
+    const hop = this.hopT > 0 ? Math.sin((1 - this.hopT / 0.18) * Math.PI) * 12 : 0;
+    drawDoveShadow(this.x, this.y);
+    const safe = this.isSafe();
+    drawDove({
+      x: this.x, y: this.y - hop, facing: this.facing, t: this.animT, mode,
+      phase: this.moveT * (this.dashing ? 13 : 9.5),
+      peck01: this.peckT > 0 ? Math.sin((1 - this.peckT / 0.28) * Math.PI) : 0,
+      blink01: this.blink > 0 ? 1 : 0, tailKick: this.tailKick, alpha: safe ? 0.92 : 1,
+    });
+    if (safe) drawSafeBadge(this.x, this.y - 96);
+  }
+}
+
+class Falcon {
+  constructor() { this.reset(); }
+  reset() {
+    this.state = 'hidden'; this.x = -999; this.y = -300; this.vx = 0; this.vy = 0;
+    this.timer = CONFIG.FALCON.safeTime; this.animT = 0; this.t = 0;
+    this.side = 1; this.patrolT = 0; this.diveT = 0; this.exitT = 0; this.visits = 0;
+    this.target = null; this.shadowX = 0;
+  }
+  get active() { return ['enter', 'patrol', 'dive', 'exit'].includes(this.state); }
+  talon() {
+    const ang = Math.atan2(this.vy, this.vx || this.side);
+    return { x: this.x + Math.cos(ang) * 46, y: this.y + Math.sin(ang) * 46, ang };
+  }
+  startWarning() {
+    this.state = 'warning'; this.t = 0;
+    this.side = Math.random() < 0.5 ? -1 : 1;
+    this.enterX = Game.cam.x + (this.side < 0 ? -160 : CONFIG.VIEW_W + 160);
+    Sound.screech(); Sound.alarm();
+  }
+  startDive() {
+    this.state = 'dive'; this.diveT = 0;
+    const d = Game.dove;
+    const ang = Math.atan2(d.centerY - this.y, d.x - this.x);
+    this.vx = Math.cos(ang) * CONFIG.FALCON.diveSpeed * 0.66;
+    this.vy = Math.sin(ang) * CONFIG.FALCON.diveSpeed * 0.66;
+  }
+  update(dt) {
+    this.animT += dt; this.t += dt;
+    const F = CONFIG.FALCON, d = Game.dove;
+    switch (this.state) {
+      case 'hidden':
+        this.timer -= dt;
+        if (this.timer <= 0 && Game.state === 'play') this.startWarning();
+        break;
+      case 'warning': {
+        this.timer -= dt;
+        const k = 1 - this.timer / F.warnTime;
+        this.shadowX = lerp(this.enterX + this.side * -260, this.enterX + this.side * -260 + this.side * -900, k);
+        if (this.timer <= 0) {
+          this.state = 'enter'; this.t = 0;
+          this.x = this.enterX; this.y = 195;
+          this.target = { x: d.x + rand(-70, 70), y: 295 };
+          this.ex = this.x; this.ey = this.y;
+        }
+        break;
+      }
+      case 'enter': {
+        const k = clamp(this.t / F.enterTime, 0, 1);
+        const e = easeInOut(k);
+        const px = this.x, py = this.y;
+        this.x = lerp(this.ex, this.target.x, e);
+        this.y = lerp(this.ey, this.target.y, e);
+        this.vx = (this.x - px) / Math.max(dt, 1e-4); this.vy = (this.y - py) / Math.max(dt, 1e-4);
+        if (k >= 1) {
+          this.state = 'patrol'; this.patrolT = rand(F.patrolTimeMin, F.patrolTimeMax);
+          this.vx = (d.x >= this.x ? 1 : -1) * F.glideSpeed; this.vy = 0;
+        }
+        break;
+      }
+      case 'patrol': {
+        // 在街道与楼房间滑翔巡航， loosely 追着斑鸠的横向位置
+        const want = Math.sign(d.x - this.x) * F.glideSpeed;
+        this.vx += clamp(want - this.vx, -240 * dt, 240 * dt);
+        this.x += this.vx * dt;
+        this.y += ((300 + Math.sin(this.animT * 1.9) * 26) - this.y) * Math.min(1, 2.4 * dt);
+        this.vy = Math.cos(this.animT * 1.9) * 30;
+        const lo = Game.cam.x + 70, hi = Game.cam.x + CONFIG.VIEW_W - 70;
+        if (this.x < lo) this.vx = Math.abs(this.vx); else if (this.x > hi) this.vx = -Math.abs(this.vx);
+        this.patrolT -= dt;
+        if (this.patrolT <= 0) this.startDive();
+        break;
+      }
+      case 'dive': {
+        this.diveT += dt;
+        // 带惯性的转向：速度渐近目标方向，不能瞬瞄
+        const tx = d.x + d.vx * 0.22, ty = d.centerY;
+        const ang = Math.atan2(ty - this.y, tx - this.x);
+        const dvx = Math.cos(ang) * F.diveSpeed, dvy = Math.sin(ang) * F.diveSpeed;
+        const s = Math.min(1, F.steerRate * dt);
+        this.vx += (dvx - this.vx) * s; this.vy += (dvy - this.vy) * s;
+        this.x += this.vx * dt; this.y += this.vy * dt;
+        // 斑鸠已进树林 → 立即放弃俯冲拉起离场（树林里绝对不会被抓）
+        if (d.isSafe()) { this.state = 'exit'; this.exitT = 0; break; }
+        if (this.y > ROW_Y.street - 8 || this.diveT > 2.4) { this.state = 'exit'; this.exitT = 0; }
+        break;
+      }
+      case 'exit': {
+        this.exitT += dt;
+        const dir = this.vx !== 0 ? Math.sign(this.vx) : this.side;
+        this.vx += (dir * F.glideSpeed * 1.1 - this.vx) * Math.min(1, 3 * dt);
+        this.vy += (-190 - this.vy) * Math.min(1, 2.6 * dt);
+        this.x += this.vx * dt; this.y += this.vy * dt;
+        if (this.x < Game.cam.x - 240 || this.x > Game.cam.x + CONFIG.VIEW_W + 240 || this.exitT > 3.2) {
+          this.state = 'hidden'; this.visits++;
+          this.timer = rand(F.gapMin, F.gapMax);
+        }
+        break;
+      }
+      case 'catch': {
+        // 抓住斑鸠后带离上升（失败动画由 Game 驱动）
+        this.vy = -230; this.vx = (this.vx || 60) * 0.98 + 30 * dt;
+        this.y += this.vy * dt; this.x += this.vx * dt;
+        break;
+      }
+    }
+  }
+  render() {
+    let mode = 'glide';
+    if (this.state === 'enter') mode = 'flap';
+    else if (this.state === 'dive') mode = 'dive';
+    else if (this.state === 'catch') mode = 'catch';
+    else if (this.state === 'exit') mode = 'flap';
+    const ang = Math.atan2(this.vy, this.vx || this.side);
+    // 地面投影（游隼越高影子越大越淡）
+    const alt = clamp((ROW_Y.street - 60 - this.y) / 420, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = 0.24 * (1 - alt * 0.55);
+    ctx.fillStyle = '#26303A';
+    ctx.beginPath(); ctx.ellipse(this.x, ROW_Y.street + 8, 62 * (1 - alt * 0.35), 12, 0, 0, TAU); ctx.fill();
+    ctx.restore();
+    drawFalcon({ x: this.x, y: this.y, ang, mode, t: this.animT });
+  }
+}
+
+/* ============================================================================
+ * 10. 食物生成器（两个来源 + 三档难度权重）
+ * ========================================================================== */
+const Spawner = {
+  sillT: 0.8, streetT: 2.5,
+  reset() { this.sillT = 0.8; this.streetT = 2.5; },
+  tier(score) {
+    let t = CONFIG.FOOD.TIERS[0];
+    for (const x of CONFIG.FOOD.TIERS) if (score >= x.minScore) t = x;
+    return t;
+  },
+  tierIndex(score) { return CONFIG.FOOD.TIERS.indexOf(this.tier(score)); },
+  pickKind(tier) {
+    const w = tier.weights, total = w.millet + w.corn + w.peanut;
+    let r = Math.random() * total;
+    for (const k of ['millet', 'corn', 'peanut']) { r -= w[k]; if (r <= 0) return k; }
+    return 'millet';
+  },
+  update(dt, game) {
+    const tier = this.tier(game.score);
+    this.sillT -= dt * tier.rateMul;
+    if (this.sillT <= 0) { this.sillT += CONFIG.FOOD.sillInterval; this.spawn('sill', game); }
+    this.streetT -= dt * tier.rateMul;
+    if (this.streetT <= 0) { this.streetT += CONFIG.FOOD.streetInterval; this.spawn('street', game); }
+  },
+  spawn(src, game) {
+    const cap = CONFIG.FOOD.CAP;
+    if (game.foods.length >= cap) return;
+    const range = src === 'sill' ? CONFIG.FOOD.sillCluster : CONFIG.FOOD.streetCluster;
+    let n = Math.min(randInt(range[0], range[1]), cap - game.foods.length);
+    if (n <= 0) return;
+    const tier = this.tier(game.score);
+    if (src === 'sill') {
+      // 只在镜头附近的楼上撒（保证刷在玩家周围）
+      const lo = game.cam.x - 260, hi = game.cam.x + CONFIG.VIEW_W + 260;
+      const cands = BUILDINGS.filter(b => b.x1 > lo && b.x0 < hi);
+      const b = cands.length ? pick(cands) : BUILDINGS[0];
+      const cx = rand(b.x0 + 70, b.x1 - 70);
+      for (let k = 0; k < n; k++) {
+        game.foods.push(new Food(this.pickKind(tier), clamp(cx + rand(-54, 54), b.x0 + 34, b.x1 - 34), 'sill', b.bi));
+      }
+      Particles.burst('pop', cx, ROW_Y.sill - 46, 4, { size: 2.5, life: 0.5, color: '#FFF2C8' });
+    } else {
+      const row = Math.random() < 0.6 ? 'street' : 'sidewalk';
+      const cx = clamp(game.cam.x + rand(60, CONFIG.VIEW_W - 60), 70, CONFIG.WORLD_WIDTH - 70);
+      for (let k = 0; k < n; k++) {
+        game.foods.push(new Food(this.pickKind(tier), clamp(cx + rand(-42, 42), 60, CONFIG.WORLD_WIDTH - 60), row, null));
+      }
+    }
+  },
+};
+
+/* ============================================================================
+ * 11. 游戏状态机与碰撞判定
+ * ========================================================================== */
+const Game = {
+  state: 'title',   // title | play | pause | caught | fail | winAnim | win
+  score: 0, time: 0, playT: 0, threatT: 0,
+  foods: [], dove: new Dove(), falcon: new Falcon(),
+  cam: { x: 0 }, shake: 0, caughtT: 0, winT: 0, flash: 0,
+  eaten: { millet: 0, corn: 0, peanut: 0 },
+  hintSillShown: false,
+
+  startRun() {
+    this.score = 0; this.foods = []; this.eaten = { millet: 0, corn: 0, peanut: 0 };
+    this.dove.reset(); this.falcon.reset(); Spawner.reset(); Particles.list = []; Floats.list = [];
+    this.playT = 0; this.threatT = 0; this.shake = 0; this.caughtT = 0; this.winT = 0; this.flash = 0;
+    this.hintSillShown = false;
+    this.state = 'play';
+  },
+  addScore(v, x, y) {
+    this.score += v;
+    Floats.add(x, y - 20, '+' + v, v >= 3 ? '#FF8D5C' : v === 2 ? '#F5B93E' : '#F7E7A1');
+    if (this.score >= CONFIG.GOAL_SCORE && this.state === 'play') {
+      this.state = 'winAnim'; this.winT = 0; Sound.win();
+      Particles.burst('spark', x, y, 26, { size: 4, life: 1.2, speed: 200, color: '#FFEDB0' });
+    }
+  },
+  tryEat() {
+    if (this.dove.state !== 'ground') return;
+    for (let i = this.foods.length - 1; i >= 0; i--) {
+      const f = this.foods[i];
+      if (f.row !== this.dove.row) continue;
+      if (f.row === 'sill' && f.b !== this.dove.building) continue;
+      if (Math.abs(f.x - this.dove.x) <= CONFIG.DOVE.eatRange) {
+        this.foods.splice(i, 1);
+        const info = CONFIG.FOOD.INFO[f.kind];
+        this.dove.peckT = 0.28;
+        this.eaten[f.kind]++;
+        Sound.peck(f.kind);
+        Particles.burst('pop', f.x, f.baseY - 16, 5, { size: 2.4, life: 0.45, color: '#FFE9A8' });
+        this.addScore(info.score, f.x, f.baseY);
+      }
+    }
+  },
+  onCaught() {
+    if (this.state !== 'play') return;
+    this.state = 'caught'; this.caughtT = 0; this.shake = 16; this.flash = 0.5;
+    this.falcon.state = 'catch';
+    Sound.fail(); Sound.grab();
+    const d = this.dove;
+    for (let i = 0; i < 14; i++) Particles.burst('feather', d.x + rand(-16, 16), d.centerY + rand(-14, 14), 1, { size: rand(3, 6), life: rand(0.8, 1.5) });
+  },
+  onButton(id) {
+    switch (id) {
+      case 'start': case 'restart': case 'winAgain': Sound.click(); this.startRun(); break;
+      case 'menu': Sound.click(); this.state = 'title'; break;
+      case 'mute': Sound.toggleMute(); break;
+      case 'pause':
+        Sound.click();
+        if (this.state === 'play') this.state = 'pause';
+        else if (this.state === 'pause') this.state = 'play';
+        break;
+    }
+  },
+  update(dt) {
+    this.time += dt;
+    if (this.flash > 0) this.flash -= dt;
+    Particles.update(dt); Floats.update(dt);
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - 40 * dt);
+
+    if (this.state === 'title') {
+      this.cam.x = clamp(880 + Math.sin(this.time * 0.09) * 880, 0, CONFIG.WORLD_WIDTH - CONFIG.VIEW_W);
+      return;
+    }
+    if (this.state === 'pause' || this.state === 'fail') return;
+
+    if (this.state === 'play') {
+      this.playT += dt;
+      if (this.falcon.active || this.falcon.state === 'warning') this.threatT += dt;
+      this.dove.update(dt);
+      Spawner.update(dt, this);
+      for (let i = this.foods.length - 1; i >= 0; i--) {
+        const f = this.foods[i]; f.update(dt);
+        if (f.dead) this.foods.splice(i, 1);
+      }
+      this.falcon.update(dt);
+      // 碰撞判定：隼爪范围与斑鸠身体重叠 && 斑鸠不在树林安全区
+      if (this.falcon.state === 'dive' && !this.dove.isSafe()) {
+        const tal = this.falcon.talon();
+        const dx = tal.x - this.dove.x, dy = tal.y - this.dove.centerY;
+        if (dx * dx + dy * dy < CONFIG.FALCON.catchRadius * CONFIG.FALCON.catchRadius) this.onCaught();
+      }
+      // 镜头跟随
+      const tx = clamp(this.dove.x - CONFIG.VIEW_W / 2, 0, CONFIG.WORLD_WIDTH - CONFIG.VIEW_W);
+      this.cam.x += (tx - this.cam.x) * Math.min(1, 5 * dt);
+    } else if (this.state === 'caught') {
+      this.caughtT += dt;
+      this.falcon.update(dt);
+      if (Math.random() < 0.3) Particles.burst('feather', this.falcon.x, this.falcon.y + 30, 1, { size: rand(2.5, 5), life: rand(0.7, 1.2) });
+      if (this.caughtT > 1.7) this.state = 'fail';
+    } else if (this.state === 'winAnim' || this.state === 'win') {
+      this.winT += dt;
+      if (Math.random() < 0.4) Particles.burst('spark', rand(0, CONFIG.VIEW_W), rand(80, 560), 1, { size: rand(1.5, 3.5), life: rand(0.6, 1.3), screen: true, color: '#FFE9A8' });
+      if (this.state === 'winAnim' && this.winT > 4.4) this.state = 'win';
+    }
+  },
+};
+
+/* ============================================================================
+ * 12. 渲染 —— 通用绘制辅助
+ * ========================================================================== */
+function rr(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function txt(str, x, y, o = {}) {
+  ctx.save();
+  ctx.font = `${o.weight || 400} ${o.size || 24}px "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif`;
+  ctx.textAlign = o.align || 'left';
+  ctx.textBaseline = o.base || 'alphabetic';
+  if (o.alpha != null) ctx.globalAlpha *= o.alpha;
+  if (o.stroke) { ctx.lineWidth = o.strokeW || 4; ctx.strokeStyle = o.stroke; ctx.lineJoin = 'round'; ctx.strokeText(str, x, y); }
+  ctx.fillStyle = o.color || '#3A2E26';
+  ctx.fillText(str, x, y);
+  ctx.restore();
+}
+function panel(x, y, w, h, o = {}) {
+  ctx.save();
+  if (o.shadow !== false) { ctx.shadowColor = 'rgba(40,24,10,0.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6; }
+  rr(x, y, w, h, o.r ?? 14);
+  ctx.fillStyle = o.fill || 'rgba(255,250,240,0.94)';
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  if (o.stroke) { ctx.lineWidth = o.strokeW || 2; ctx.strokeStyle = o.stroke; ctx.stroke(); }
+  ctx.restore();
+}
+// ---- UI 按钮基础设施（canvas 内绘制 + 点击命中）----
+let uiButtons = [], pendingClick = null, hoverPointer = false;
+function button(id, x, y, w, h, label, o = {}) {
+  const hov = Input.mouse.x >= x && Input.mouse.x <= x + w && Input.mouse.y >= y && Input.mouse.y <= y + h;
+  if (hov) hoverPointer = true;
+  ctx.save();
+  rr(x, y, w, h, o.r ?? 12);
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  const base = o.style || 'primary';
+  if (base === 'primary') { g.addColorStop(0, hov ? '#FFB36A' : '#F4A25B'); g.addColorStop(1, hov ? '#E8843C' : '#DE7A33'); }
+  else { g.addColorStop(0, hov ? '#E8E0D4' : '#DCD2C4'); g.addColorStop(1, hov ? '#CFC4B4' : '#C4B8A6'); }
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = 'rgba(90,50,20,0.35)'; ctx.lineWidth = 2; ctx.stroke();
+  txt(label, x + w / 2, y + h / 2 + (o.size || 24) * 0.36, {
+    size: o.size || 24, weight: 700, align: 'center',
+    color: base === 'primary' ? '#4A2410' : '#4A3A28',
+  });
+  ctx.restore();
+  uiButtons.push({ id, x, y, w, h });
+}
+function processClick() {
+  if (!pendingClick) return;
+  const p = pendingClick; pendingClick = null;
+  for (let i = uiButtons.length - 1; i >= 0; i--) {
+    const b = uiButtons[i];
+    if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { Game.onButton(b.id); return; }
+  }
+}
+
+/* ============================================================================
+ * 13. 渲染 —— 场景（天空 / 远景 / 街道 / 楼房 / 树林）
+ * ========================================================================== */
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, CONFIG.VIEW_H);
+  g.addColorStop(0, '#7FC3E8'); g.addColorStop(0.45, '#BCE3F2'); g.addColorStop(0.8, '#EAF2E2'); g.addColorStop(1, '#F6E7C4');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H);
+  // 太阳（暖光）
+  const sg = ctx.createRadialGradient(1040, 130, 10, 1040, 130, 190);
+  sg.addColorStop(0, 'rgba(255,246,214,0.95)'); sg.addColorStop(0.25, 'rgba(255,236,180,0.55)'); sg.addColorStop(1, 'rgba(255,236,180,0)');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(1040, 130, 190, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#FFF7DB'; ctx.beginPath(); ctx.arc(1040, 130, 42, 0, TAU); ctx.fill();
+  // 云（屏幕空间漂移 + 轻微视差）
+  for (const c of DECOR.clouds) {
+    const x = ((c.x + Game.time * c.spd) % (CONFIG.VIEW_W + 520)) - 260 - Game.cam.x * 0.04;
+    drawCloud(x, c.y, c.s);
+  }
+}
+function drawCloud(x, y, s) {
+  ctx.save(); ctx.globalAlpha = 0.88; ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.arc(x, y, 26 * s, 0, TAU); ctx.arc(x + 30 * s, y - 12 * s, 22 * s, 0, TAU);
+  ctx.arc(x + 62 * s, y, 24 * s, 0, TAU); ctx.arc(x + 32 * s, y + 10 * s, 28 * s, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 0.25; ctx.fillStyle = '#F6E3C8';
+  ctx.beginPath(); ctx.ellipse(x + 30 * s, y + 18 * s, 58 * s, 12 * s, 0, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawSkyline() {
+  // 两层城市远景（视差）
+  ctx.save(); ctx.translate(-Game.cam.x * 0.15, 0);
+  ctx.fillStyle = 'rgba(178,190,210,0.55)';
+  for (const b of DECOR.far) ctx.fillRect(b.x, 430 - b.h, b.w, b.h + 8);
+  ctx.restore();
+  ctx.save(); ctx.translate(-Game.cam.x * 0.3, 0);
+  ctx.fillStyle = 'rgba(150,168,196,0.6)';
+  for (const b of DECOR.mid) {
+    ctx.fillRect(b.x, 470 - b.h, b.w, b.h + 8);
+    if (b.tank) ctx.fillRect(b.x + b.w * 0.3, 470 - b.h - 10, 10, 10);
+  }
+  ctx.fillStyle = 'rgba(120,140,170,0.5)'; ctx.fillRect(-400, 466, CONFIG.WORLD_WIDTH * 0.3 + CONFIG.VIEW_W + 800, 10);
+  ctx.restore();
+}
+function drawGround() {
+  // 草带（楼前草坪）
+  ctx.fillStyle = '#A5C97F'; ctx.fillRect(-200, 536, CONFIG.WORLD_WIDTH + 400, 26);
+  ctx.fillStyle = '#B8D894'; ctx.fillRect(-200, 536, CONFIG.WORLD_WIDTH + 400, 6);
+  ctx.fillStyle = 'rgba(70,100,50,0.25)'; ctx.fillRect(-200, 558, CONFIG.WORLD_WIDTH + 400, 4);
+  for (const t of DECOR.tufts) {   // 草叶点缀
+    ctx.strokeStyle = 'rgba(90,130,60,0.55)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(t.x, 558); ctx.lineTo(t.x - 3 * t.s, 551);
+    ctx.moveTo(t.x + 3, 558); ctx.lineTo(t.x + 6 * t.s, 552);
+    ctx.stroke();
+  }
+  // 人行道
+  ctx.fillStyle = '#D8D2C4'; ctx.fillRect(-200, 562, CONFIG.WORLD_WIDTH + 400, 48);
+  ctx.fillStyle = '#C4BEAE'; ctx.fillRect(-200, 610, CONFIG.WORLD_WIDTH + 400, 8);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(-200, 562, CONFIG.WORLD_WIDTH + 400, 3);
+  ctx.strokeStyle = 'rgba(150,142,126,0.5)'; ctx.lineWidth = 2;
+  for (let x = 0; x < CONFIG.WORLD_WIDTH; x += 64) {
+    ctx.beginPath(); ctx.moveTo(x, 566); ctx.lineTo(x, 610); ctx.stroke();
+  }
+  // 路缘石
+  ctx.fillStyle = '#E8E2D2'; ctx.fillRect(-200, 618, CONFIG.WORLD_WIDTH + 400, 12);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(-200, 618, CONFIG.WORLD_WIDTH + 400, 3);
+  ctx.fillStyle = 'rgba(90,84,70,0.35)'; ctx.fillRect(-200, 627, CONFIG.WORLD_WIDTH + 400, 3);
+  // 街道（沥青）
+  const g = ctx.createLinearGradient(0, 630, 0, 720);
+  g.addColorStop(0, '#6E7780'); g.addColorStop(1, '#5F6870');
+  ctx.fillStyle = g; ctx.fillRect(-200, 630, CONFIG.WORLD_WIDTH + 400, 90);
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  for (let x = 0; x < CONFIG.WORLD_WIDTH; x += 96) { rr(x, 674, 46, 5, 2.5); ctx.fill(); }
+  for (const mx of DECOR.manholes) {   // 井盖
+    ctx.fillStyle = '#565E66'; ctx.beginPath(); ctx.ellipse(mx, 700, 13, 6, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  for (const p of DECOR.patches) {   // 修补痕
+    ctx.fillStyle = 'rgba(60,66,72,0.5)';
+    ctx.beginPath(); ctx.ellipse(p.x, 656 + p.dy, 34, 9, 0, 0, TAU); ctx.fill();
+  }
+}
+function drawBuilding(b) {
+  // 墙体
+  const g = ctx.createLinearGradient(0, b.top, 0, 562);
+  g.addColorStop(0, b.wall); g.addColorStop(1, shade(b.wall, -14));
+  ctx.fillStyle = g;
+  rr(b.x0, b.top, b.x1 - b.x0, 562 - b.top, 6); ctx.fill();
+  // 屋顶檐口
+  ctx.fillStyle = b.trim;
+  rr(b.x0 - 7, b.top - 8, b.x1 - b.x0 + 14, 14, 4); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillRect(b.x0 - 5, b.top - 6, b.x1 - b.x0 + 10, 3);
+  if (b.roofBox) { ctx.fillStyle = '#C9CDD6'; rr(b.x0 + 30, b.top - 30, 34, 24, 3); ctx.fill(); ctx.fillStyle = '#AEB4C0'; ctx.fillRect(b.x0 + 30, b.top - 30, 34, 5); }
+  if (b.roofBox2) { ctx.fillStyle = '#B8C2CE'; rr(b.x1 - 80, b.top - 36, 28, 30, 4); ctx.fill(); }
+  // 楼底门
+  ctx.fillStyle = '#7A6A5C'; rr(b.doorX - 30, 470, 60, 92, 6); ctx.fill();
+  ctx.fillStyle = '#564A40'; rr(b.doorX - 24, 476, 48, 86, 4); ctx.fill();
+  ctx.fillStyle = 'rgba(255,230,180,0.25)'; rr(b.doorX - 18, 482, 36, 34, 3); ctx.fill();
+  ctx.fillStyle = '#D8D2C4'; ctx.fillRect(b.doorX - 38, 562, 76, 5);
+  // 窗户（下排带窗台 = 可站立平台）
+  for (const w of b.windows) {
+    const wx = w.x, wy = w.bottom - 78;
+    ctx.fillStyle = 'rgba(70,50,30,0.18)'; ctx.fillRect(wx - 3, wy + 3, 72, 84);
+    ctx.fillStyle = '#FFFFFF'; rr(wx - 4, wy - 4, 72, 84, 4); ctx.fill();
+    const gg = ctx.createLinearGradient(wx, wy, wx, wy + 78);
+    gg.addColorStop(0, w.lit ? '#F6DFA6' : '#CFE6F2'); gg.addColorStop(1, w.lit ? '#EAC98A' : '#A6C8DE');
+    ctx.fillStyle = gg; ctx.fillRect(wx, wy, 64, 78);
+    if (!w.lit) {   // 玻璃反光
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.moveTo(wx + 8, wy + 70); ctx.lineTo(wx + 30, wy + 6); ctx.lineTo(wx + 44, wy + 6); ctx.lineTo(wx + 20, wy + 70); ctx.closePath(); ctx.fill();
+    } else {        // 拉了一半的窗帘
+      ctx.fillStyle = w.curtain; ctx.globalAlpha = 0.85;
+      ctx.fillRect(wx, wy, 16, 78); ctx.fillRect(wx + 48, wy, 16, 78);
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(wx + 32, wy); ctx.lineTo(wx + 32, wy + 78); ctx.stroke();
+    if (w.sill) {   // 窗台板（行走平台）
+      ctx.fillStyle = '#EFE9DC'; rr(wx - 10, w.bottom, 84, 10, 3); ctx.fill();
+      ctx.fillStyle = 'rgba(120,100,70,0.35)'; ctx.fillRect(wx - 8, w.bottom + 8, 80, 3);
+      ctx.fillStyle = '#D9D2C2';
+      ctx.fillRect(wx - 2, w.bottom + 10, 6, 7); ctx.fillRect(wx + 54, w.bottom + 10, 6, 7);
+    }
+  }
+  // 窗台层的连续线脚（视觉上把窗台连成可走通道）
+  ctx.fillStyle = 'rgba(120,100,70,0.16)';
+  ctx.fillRect(b.x0 + 16, ROW_Y.sill + 12, b.x1 - b.x0 - 32, 4);
+}
+function shade(hex, amt) {  // 简单颜色加深/变浅
+  const n = parseInt(hex.slice(1), 16);
+  const r = clamp((n >> 16) + amt, 0, 255), g2 = clamp(((n >> 8) & 255) + amt, 0, 255), b = clamp((n & 255) + amt, 0, 255);
+  return `rgb(${r},${g2},${b})`;
+}
+function drawLamp(x) {
+  ctx.strokeStyle = '#5B5F66'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x, 606); ctx.lineTo(x, 372); ctx.lineTo(x + 26, 366); ctx.stroke();
+  ctx.fillStyle = '#FFE9B0';
+  rr(x + 18, 360, 22, 14, 5); ctx.fill();
+  ctx.fillStyle = 'rgba(255,233,176,0.28)';
+  ctx.beginPath(); ctx.arc(x + 29, 370, 26, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#6B7078'; ctx.fillRect(x - 7, 604, 14, 6);
+}
+// ---- 小树林（安全区）：后层在斑鸠后、前层盖住斑鸠 ----
+function drawGroveBack(g) {
+  const t = Game.time, sway = Math.sin(t * 0.7 + g.phase) * 3;
+  for (const tr of g.trees) drawTree(g.cx + tr.dx, tr.s, sway, true);
+  for (const bu of g.bushes) drawBush(g.cx + bu.dx, 558, bu.s, true);
+}
+function drawGroveFront(g) {
+  const t = Game.time;
+  for (const bu of g.bushes) drawBush(g.cx + bu.dx, 596, bu.s * 1.06, false);
+  // 低垂到人行道/街道上空的枝叶（盖住躲在里面的斑鸠）
+  ctx.save(); ctx.globalAlpha = 0.96;
+  const greens = ['#4E8748', '#5F9B54', '#6FAE5F'];
+  for (let i = 0; i < 6; i++) {
+    const bx = g.x0 + 14 + i * (g.width - 28) / 5 + Math.sin(t * 0.8 + i) * 2;
+    const by = 640 + (i % 2) * 26;
+    ctx.fillStyle = greens[i % 3];
+    ctx.beginPath();
+    ctx.ellipse(bx, by, 34 + (i % 3) * 8, 30 + (i % 2) * 10, Math.sin(i * 2.1) * 0.3, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+function drawTree(x, s, sway, back) {
+  const base = 558;
+  ctx.fillStyle = back ? '#7A5C43' : '#8A6A4F';
+  ctx.beginPath();
+  ctx.moveTo(x - 8 * s, base); ctx.quadraticCurveTo(x - 5 * s, base - 70 * s, x - 4 * s + sway * 0.4, base - 128 * s);
+  ctx.lineTo(x + 4 * s + sway * 0.4, base - 128 * s); ctx.quadraticCurveTo(x + 5 * s, base - 70 * s, x + 9 * s, base);
+  ctx.closePath(); ctx.fill();
+  const cy = base - 158 * s;
+  const blobs = [[0, 0, 58, 44], [-42, 14, 44, 36], [40, 12, 46, 38], [0, -28, 48, 36]];
+  const cols = back ? ['#55854C', '#619356', '#6CA15F'] : ['#69A25F', '#7BB26B', '#8CC178'];
+  blobs.forEach((b, i) => {
+    ctx.fillStyle = cols[i % 3];
+    ctx.beginPath(); ctx.ellipse(x + b[0] + sway, cy + b[1], b[2] * s, b[3] * s, 0, 0, TAU); ctx.fill();
+  });
+  ctx.fillStyle = back ? 'rgba(130,175,120,0.5)' : 'rgba(180,225,160,0.55)';
+  ctx.beginPath(); ctx.ellipse(x - 16 * s + sway, cy - 30 * s, 30 * s, 20 * s, -0.4, 0, TAU); ctx.fill();
+}
+function drawBush(x, base, s, back) {
+  const cols = back ? ['#4E8748', '#5A9450'] : ['#5F9B54', '#6FAE5F', '#7FBE6E'];
+  const blobs = [[0, 0, 34, 24], [-27, 5, 26, 18], [27, 4, 28, 20]];
+  blobs.forEach((b, i) => {
+    ctx.fillStyle = cols[i % cols.length];
+    ctx.beginPath(); ctx.ellipse(x + b[0], base - 26 * s + b[1], b[2] * s, b[3] * s, 0, 0, TAU); ctx.fill();
+  });
+  if (!back) {   // 小红果点缀
+    ctx.fillStyle = '#D96A5F';
+    ctx.beginPath(); ctx.arc(x - 14, base - 34 * s, 3, 0, TAU); ctx.arc(x + 10, base - 40 * s, 3, 0, TAU); ctx.arc(x + 22, base - 30 * s, 2.6, 0, TAU); ctx.fill();
+  }
+}
+function drawSafeZones() {
+  const t = Game.time;
+  for (const g of GROVES) {
+    const doveIn = Game.state !== 'title' && Game.dove.isSafe() && Game.dove.x > g.x0 - 60 && Game.dove.x < g.x1 + 60;
+    const near = Math.abs(Game.dove.x - g.cx) < g.width * 1.4;
+    const a = doveIn ? 0.4 + 0.18 * Math.sin(t * 6) : 0.14;
+    ctx.save();
+    rr(g.x0 + 4, 330, g.width - 8, 386, 46);
+    ctx.fillStyle = `rgba(120,225,140,${doveIn ? 0.1 : 0.05})`; ctx.fill();
+    ctx.shadowColor = 'rgba(110,255,150,0.9)'; ctx.shadowBlur = doveIn ? 22 : 10;
+    ctx.strokeStyle = `rgba(140,255,170,${a})`; ctx.lineWidth = 3.5; ctx.setLineDash([16, 10]);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
+    if (near && !doveIn) txt('树林安全区', g.cx, 318, { size: 17, align: 'center', color: 'rgba(60,110,60,0.85)', weight: 700 });
+    if (doveIn) txt('安全', g.cx, 318, { size: 18, align: 'center', color: '#3E8B44', weight: 700, stroke: 'rgba(255,255,255,0.8)', strokeW: 3 });
+  }
+}
+function drawSafeBadge(x, y) {
+  ctx.save();
+  ctx.globalAlpha = 0.85 + Math.sin(Game.time * 6) * 0.15;
+  // 叶片盾形徽标
+  ctx.translate(x, y + Math.sin(Game.time * 4) * 3);
+  ctx.fillStyle = '#7BE28A';
+  ctx.beginPath(); ctx.moveTo(0, -12); ctx.quadraticCurveTo(13, -6, 10, 6); ctx.quadraticCurveTo(5, 13, 0, 14); ctx.quadraticCurveTo(-5, 13, -10, 6); ctx.quadraticCurveTo(-13, -6, 0, -12); ctx.fill();
+  ctx.strokeStyle = '#2E7C3A'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, 12); ctx.stroke();
+  ctx.restore();
+}
+
+/* ============================================================================
+ * 14. 渲染 —— 食物
+ * ========================================================================== */
+function drawFoods() {
+  for (const f of Game.foods) {
+    const life = CONFIG.FOOD.LIFE;
+    let alpha = 1;
+    if (f.age > life - 1.6) alpha = 0.35 + 0.65 * Math.abs(Math.sin(f.age * 9));   // 快消失时闪烁
+    const drop = f.dropT > 0 ? (f.dropT / (f.row === 'sill' ? 0.45 : 0.3)) * 64 : 0;
+    const bob = Math.sin(Game.time * 2.6 + f.phase) * 2.5;
+    const y = f.baseY - 7 + bob - drop;
+    ctx.save(); ctx.globalAlpha = alpha; ctx.translate(f.x, y);
+    // 柔光
+    const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 18);
+    g.addColorStop(0, 'rgba(255,240,190,0.4)'); g.addColorStop(1, 'rgba(255,240,190,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 18, 0, TAU); ctx.fill();
+    if (f.kind === 'millet') {          // 小米：金黄圆粒
+      ctx.fillStyle = '#F5C542';
+      ctx.beginPath(); ctx.arc(-4, 0, 3.4, 0, TAU); ctx.arc(4, -2, 3.4, 0, TAU); ctx.arc(1, 4, 3.2, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.arc(-5, -1, 1, 0, TAU); ctx.arc(3, -3, 1, 0, TAU); ctx.fill();
+    } else if (f.kind === 'corn') {     // 玉米：橙黄椭圆粒
+      ctx.save(); ctx.rotate(f.phase % 1.2);
+      ctx.fillStyle = '#F0A32F';
+      ctx.beginPath(); ctx.ellipse(0, 0, 6.5, 4.6, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#D98420';
+      ctx.beginPath(); ctx.ellipse(0, 1.8, 5.5, 2.4, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.ellipse(-2, -1.8, 1.8, 1.1, -0.5, 0, TAU); ctx.fill();
+      ctx.restore();
+    } else {                            // 花生米：浅红皮椭圆
+      ctx.save(); ctx.rotate((f.phase % 1.5) - 0.75);
+      ctx.fillStyle = '#D98A6A';
+      ctx.beginPath(); ctx.ellipse(0, 0, 6.8, 4.6, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#C9754F';
+      ctx.beginPath(); ctx.ellipse(1, 1, 4.4, 2.6, 0.3, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(140,70,45,0.6)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(-4, -1); ctx.quadraticCurveTo(0, 0.5, 4, -1); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath(); ctx.ellipse(-2.2, -2, 1.8, 1, -0.5, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    // 偶发闪光
+    if (Math.sin(Game.time * 3 + f.phase * 5) > 0.92) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(9, -9); ctx.lineTo(13, -13); ctx.moveTo(13, -9); ctx.lineTo(9, -13);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/* ============================================================================
+ * 15. 渲染 —— 珠颈斑鸠（矢量形状组合；配色依据现实外形）
+ * ========================================================================== */
+function drawDoveShadow(x, y) {   // 在当前坐标系下直接绘制（世界层内调用）
+  ctx.save();
+  ctx.globalAlpha = 0.16; ctx.fillStyle = '#33301F';
+  ctx.beginPath(); ctx.ellipse(x, y + 4, 22, 5.5, 0, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawDove(o) {
+  // 精灵图替换入口：加载了 Sprites.dove 就直接贴图
+  if (Sprites.dove) {
+    ctx.save(); ctx.translate(o.x, o.y); ctx.scale(o.facing * (o.scale || 1), o.scale || 1);
+    ctx.drawImage(Sprites.dove, -52, -66, 104, 68); ctx.restore(); return;
+  }
+  const t = o.t, mode = o.mode || 'idle';
+  const walk = mode === 'walk' || mode === 'dash';
+  const phase = o.phase || 0;
+  const legSwing = walk ? Math.sin(phase) * (mode === 'dash' ? 10 : 7) : 0;
+  const bodyBob = walk ? Math.abs(Math.sin(phase)) * 2.4 : Math.sin(t * 2.1) * 0.9;
+  const headBob = walk ? Math.sin(phase) * 4.5 : Math.sin(t * 1.3) * 1.1;   // 斑鸠特征：走路点头
+  const peck = o.peck01 || 0;
+  const flying = mode === 'fly' || mode === 'drop';
+  const tailWag = Math.sin(t * 2) * 1.5 + (o.tailKick > 0 ? Math.sin((0.5 - o.tailKick) * Math.PI * 2) * 7 : 0);
+  let wingBase = -1.7, wingAmp = 0.7, wingFreq = 11, spread = 0;
+  if (mode === 'fly') { spread = 1; wingBase = -1.35; wingAmp = 0.85; wingFreq = 11; }
+  else if (mode === 'dash') { spread = 0.75; wingBase = -1.05; wingAmp = 0.55; wingFreq = 15; }
+  else if (mode === 'drop') { spread = 0.55; wingBase = -1.25; wingAmp = 0.45; wingFreq = 7; }
+  else if (mode === 'win') { spread = 1; wingBase = -1.45; wingAmp = 0.8; wingFreq = 6; }
+  const wingA = spread > 0 ? Math.sin(t * wingFreq * TAU * 0.5) * wingAmp : 0;
+  const tilt = mode === 'dash' ? 0.16 : mode === 'fly' ? -0.26 : mode === 'drop' ? 0.18 : 0;
+
+  ctx.save();
+  ctx.translate(o.x, o.y);
+  if (o.alpha != null) ctx.globalAlpha = o.alpha;
+  ctx.scale(o.facing * (o.scale || 1), o.scale || 1);
+  if (o.rot) ctx.rotate(o.rot);
+
+  // ---- 腿脚（粉红色）----
+  ctx.strokeStyle = '#E7959E'; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+  const drawLeg = (hx, ph) => {
+    const swing = Math.sin(ph) * (walk ? 8 : 0);
+    const lift = walk ? Math.max(0, Math.sin(ph)) * 4 : 0;
+    let footX, footY, kneeX, kneeY;
+    if (flying) { footX = hx - 3; footY = -5; kneeX = hx + 2; kneeY = -9; }   // 飞行时后收
+    else { footX = hx + swing; footY = -lift; kneeX = hx + swing * 0.4; kneeY = -8; }
+    ctx.beginPath(); ctx.moveTo(hx, -14); ctx.lineTo(kneeX, kneeY); ctx.lineTo(footX, footY); ctx.stroke();
+    if (!flying) {  // 脚趾
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(footX, footY); ctx.lineTo(footX + 5, footY - 1);
+      ctx.moveTo(footX, footY); ctx.lineTo(footX + 4.5, footY + 2);
+      ctx.moveTo(footX, footY); ctx.lineTo(footX - 3.5, footY + 1);
+      ctx.stroke(); ctx.lineWidth = 3.2;
+    }
+  };
+  drawLeg(-4, phase + Math.PI); drawLeg(5, phase);
+
+  // ---- 身体组（绕髋部上方的旋转）----
+  ctx.save();
+  ctx.translate(0, -18 - bodyBob * 0.4);
+  ctx.rotate(tilt + peck * 0.1);
+
+  // 尾（较长，外侧尾羽末端白色）
+  ctx.save();
+  ctx.translate(-14, -6); ctx.rotate(tailWag * 0.04);
+  ctx.fillStyle = '#C08A6E';
+  ctx.beginPath();
+  ctx.moveTo(2, -7); ctx.lineTo(-30, -12); ctx.lineTo(-34, -8); ctx.lineTo(-34, -2); ctx.lineTo(-30, 0); ctx.lineTo(2, 6);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#F3EDE3';   // 白色尾端
+  ctx.beginPath(); ctx.moveTo(-25, -11); ctx.lineTo(-34, -12.5); ctx.lineTo(-33, -7); ctx.lineTo(-25, -8); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-25, -1); ctx.lineTo(-33, -1.5); ctx.lineTo(-34, 0); ctx.lineTo(-25, 2); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // 远侧翅（展开时）
+  if (spread > 0) doveWingShape(-2, -12, wingBase - wingA * 0.85 - 0.25, spread * 0.9, '#A8765B', '#8A5A42');
+
+  // 身体（粉褐色/淡葡萄棕）
+  const bg = ctx.createLinearGradient(0, -24, 0, 12);
+  bg.addColorStop(0, o.fancy ? '#E9B89D' : '#DBA98E'); bg.addColorStop(1, o.fancy ? '#D19372' : '#C08A6E');
+  ctx.fillStyle = bg;
+  ctx.beginPath(); ctx.ellipse(0, -8, 23, 17.5, -0.06, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#EBCBB2';   // 浅色腹部
+  ctx.beginPath(); ctx.ellipse(4, -1, 16, 10, 0.1, 0, TAU); ctx.fill();
+
+  // 折叠翅（贴在体侧，深一号的粉褐 + 羽纹）
+  if (spread <= 0.01) {
+    ctx.fillStyle = '#C68F72';
+    ctx.beginPath();
+    ctx.moveTo(9, -17);
+    ctx.bezierCurveTo(20, -12, 15, 3, 2, 6);
+    ctx.bezierCurveTo(-10, 8, -21, 3, -19, -5);
+    ctx.bezierCurveTo(-17, -13, -3, -19, 9, -17);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(150,95,65,0.55)'; ctx.lineWidth = 1.4;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(4 - i * 3, -13 + i * 2);
+      ctx.quadraticCurveTo(-8 - i * 2, -8 + i * 3, -16 - i * 1.5, -3 + i * 2.5);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(140,90,60,0.5)';
+    ctx.beginPath(); ctx.ellipse(-16, -3, 5, 6, 0.5, 0, TAU); ctx.fill();
+  }
+
+  // 近侧翅（展开/扑扇）
+  if (spread > 0) doveWingShape(4, -14, wingBase + wingA, spread, '#C68F72', '#8F5F44');
+
+  // ---- 头颈（头顶颈侧灰色；后颈黑斑+白珠点）----
+  // 颈部过渡
+  ctx.fillStyle = '#B7B2C2';
+  ctx.beginPath();
+  ctx.moveTo(4, -16); ctx.quadraticCurveTo(12, -22, 15, -24);
+  ctx.lineTo(21, -16); ctx.quadraticCurveTo(12, -8, 4, -4);
+  ctx.closePath(); ctx.fill();
+  // 头（灰）+ 低头/点头动作
+  ctx.save();
+  ctx.translate(15, -20);
+  ctx.rotate(peck * 0.62);
+  ctx.translate(-15, 20);
+  const hx = 17 + headBob * 0.5, hy = -23 - headBob * 0.3;
+  ctx.fillStyle = '#B7B2C2';
+  ctx.beginPath(); ctx.arc(hx, hy, 11.5, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#C9C5D4';   // 头顶亮灰
+  ctx.beginPath(); ctx.ellipse(hx - 1, hy - 4, 9, 6, -0.3, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#D8A98E';   // 颊喉偏粉
+  ctx.beginPath(); ctx.ellipse(hx + 4, hy + 5, 6.5, 5, 0.4, 0, TAU); ctx.fill();
+  // 后颈黑色颈斑（标志）
+  ctx.save();
+  ctx.translate(hx - 8.5, hy + 3.5); ctx.rotate(-0.35);
+  ctx.fillStyle = '#2B2620';
+  rr(-5.5, -4.5, 11, 9, 4); ctx.fill();
+  ctx.fillStyle = '#F5F2EA';   // 白色珍珠状小点
+  const dots = [[-3.5, -2], [0, -2.6], [3.4, -2], [-1.8, 0.6], [1.8, 0.6], [-0.2, 2.8], [3.2, 2.2]];
+  for (const d of dots) { ctx.beginPath(); ctx.arc(d[0], d[1], 1.35, 0, TAU); ctx.fill(); }
+  ctx.restore();
+  // 眼（虹膜橙红）
+  ctx.strokeStyle = '#D98A76'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(hx + 4, hy - 1.5, 3.9, 0, TAU); ctx.stroke();
+  ctx.fillStyle = '#E8523C';
+  ctx.beginPath(); ctx.arc(hx + 4, hy - 1.5, 3, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#241F1C';
+  ctx.beginPath(); ctx.arc(hx + 4.4, hy - 1.5, 1.6, 0, TAU); ctx.fill();
+  if (!(o.blink01 > 0)) { ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(hx + 3.2, hy - 2.6, 0.8, 0, TAU); ctx.fill(); }
+  else { ctx.strokeStyle = '#8A6A55'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(hx + 1, hy - 1.5); ctx.lineTo(hx + 7.5, hy - 1.5); ctx.stroke(); }
+  // 喙（细小、深灰褐）
+  ctx.fillStyle = '#5B4A43';
+  ctx.beginPath(); ctx.moveTo(hx + 9.5, hy - 2.5); ctx.lineTo(hx + 17.5, hy + 0.5); ctx.lineTo(hx + 9.5, hy + 1.5); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#6E5B52'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(hx + 10, hy + 1); ctx.lineTo(hx + 15.5, hy + 0.8); ctx.stroke();
+  ctx.restore(); // 头部动作结束
+
+  // 背部柔光高光
+  ctx.fillStyle = 'rgba(255,246,230,0.22)';
+  ctx.beginPath(); ctx.ellipse(-6, -16, 13, 6, -0.35, 0, TAU); ctx.fill();
+  ctx.restore(); // 身体组结束
+  ctx.restore();
+}
+function doveWingShape(sx, sy, angle, spread, color, tipColor) {
+  const L = 24 + 32 * spread;
+  ctx.save();
+  ctx.translate(sx, sy); ctx.rotate(angle);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(L * 0.45, -9 - 13 * spread, L, -3 - 9 * spread);
+  const ty = -3 - 9 * spread;
+  ctx.lineTo(L - 5, ty + 8 + 4 * spread);
+  ctx.lineTo(L - 13, ty + 6 + 4 * spread);
+  ctx.lineTo(L - 20, ty + 10 + 5 * spread);
+  ctx.lineTo(L - 27, ty + 8 + 5 * spread);
+  ctx.lineTo(L - 32, ty + 13 + 5 * spread);
+  ctx.quadraticCurveTo(L * 0.4, 9 + 6 * spread, 0, 6);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = tipColor;
+  ctx.beginPath();
+  ctx.moveTo(L, ty); ctx.lineTo(L - 5, ty + 8 + 4 * spread); ctx.lineTo(L - 13, ty + 6 + 4 * spread); ctx.lineTo(L - 6, ty - 2);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+/* ============================================================================
+ * 16. 渲染 —— 游隼（石板蓝灰盔黑髭纹；滑翔/扑翅/俯冲收翅/伸爪）
+ * ========================================================================== */
+function drawFalcon(o) {
+  if (Sprites.falcon) {
+    ctx.save(); ctx.translate(o.x, o.y);
+    const f = Math.cos(o.ang) >= 0 ? 1 : -1;
+    ctx.scale(f, 1);
+    ctx.drawImage(Sprites.falcon, -80, -46, 160, 92); ctx.restore(); return;
+  }
+  const t = o.t, mode = o.mode || 'glide';
+  const facing = Math.cos(o.ang) >= 0 ? 1 : -1;
+  const rot = facing === 1 ? o.ang : Math.PI - o.ang;
+  let wingLen = 96, wingSweep = 1, flap = 0, nearA = -0.42, farA = 0.5;
+  if (mode === 'flap') { flap = Math.sin(t * 9.5) * 0.55; }
+  if (mode === 'dive') { wingLen = 62; wingSweep = 0.62; nearA = -0.14; farA = 0.18; }
+  if (mode === 'catch') { wingLen = 104; nearA = -0.7; farA = 0.75; }
+
+  ctx.save();
+  ctx.translate(o.x, o.y);
+  ctx.scale(facing, 1);
+  ctx.rotate(rot);
+
+  // 尾（长窄、深色横纹）
+  ctx.fillStyle = '#4A5A6E';
+  ctx.beginPath();
+  ctx.moveTo(-40, -6); ctx.lineTo(-88, -4); ctx.lineTo(-90, 4); ctx.lineTo(-40, 7);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#33414F'; ctx.lineWidth = 2.4;
+  for (const bx of [-56, -68, -80]) { ctx.beginPath(); ctx.moveTo(bx, -5.5); ctx.lineTo(bx - 2, 5.5); ctx.stroke(); }
+
+  // 远侧翅（后画身体盖住根部）
+  falconWing(-6, -8, farA + flap * 0.8, wingLen, wingSweep, '#48586C', '#3A4A5D');
+
+  // 身体（背部石板蓝灰，腹部白偏粉+深色细横纹）
+  ctx.fillStyle = '#5A6B7F';
+  ctx.beginPath();
+  ctx.moveTo(46, -6);
+  ctx.bezierCurveTo(30, -16, -14, -15, -42, -7);
+  ctx.lineTo(-42, 6);
+  ctx.bezierCurveTo(-14, 13, 28, 11, 46, 3);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#EFE8E3';   // 腹部
+  ctx.beginPath(); ctx.moveTo(44, 1); ctx.bezierCurveTo(20, 10, -20, 10, -40, 5); ctx.bezierCurveTo(-20, 13, 24, 13, 44, 4); ctx.closePath();
+  ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10, 6, 30, 6.5, -0.05, 0, TAU); ctx.fill();
+  ctx.strokeStyle = 'rgba(120,110,100,0.8)'; ctx.lineWidth = 1.5;   // 细横纹
+  for (let i = 0; i < 5; i++) {
+    const bx = 30 - i * 11;
+    ctx.beginPath(); ctx.moveTo(bx, 3 - i * 0.3); ctx.quadraticCurveTo(bx - 5, 8, bx - 9, 3.5); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.14)';   // 背部高光
+  ctx.beginPath(); ctx.ellipse(0, -10, 32, 4.5, -0.04, 0, TAU); ctx.fill();
+
+  // 头（黑色头盔 + 髭纹 + 黄色眼圈/蜡膜 + 钩喙）
+  ctx.fillStyle = '#23262E';
+  ctx.beginPath(); ctx.arc(38, -3, 13.5, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(30, 4); ctx.quadraticCurveTo(40, 12, 50, 3); ctx.quadraticCurveTo(40, 7, 30, 4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#F0EAE6';   // 白色喉部
+  ctx.beginPath(); ctx.ellipse(43, 4.5, 6, 4.5, 0.5, 0, TAU); ctx.fill();
+  ctx.save();                  // 髭纹（粗黑）
+  ctx.translate(41, 1); ctx.rotate(0.5);
+  ctx.fillStyle = '#15171D';
+  rr(-2.6, 0, 5.2, 13, 2.6); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = '#F0BE4A';   // 黄色眼圈
+  ctx.beginPath(); ctx.arc(42, -6.5, 4.8, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#1A1C20';
+  ctx.beginPath(); ctx.arc(42.6, -6.5, 2.7, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath(); ctx.arc(41.6, -7.5, 0.9, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#E8B33B';   // 黄色蜡膜
+  ctx.beginPath(); ctx.ellipse(50.5, -3.5, 3.4, 2.8, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#41474F';   // 钩状喙（灰黑）
+  ctx.beginPath();
+  ctx.moveTo(51, -6.5);
+  ctx.quadraticCurveTo(62, -5, 63.5, 1.5);
+  ctx.quadraticCurveTo(62, 1, 60, 3.5);   // 下弯钩
+  ctx.quadraticCurveTo(58, -1, 50.5, -0.5);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2E333A';
+  ctx.beginPath(); ctx.moveTo(63.5, 1.5); ctx.quadraticCurveTo(62, 1, 60, 3.5); ctx.quadraticCurveTo(62, 3.4, 63.5, 1.5); ctx.closePath(); ctx.fill();
+
+  // 双爪：俯冲/抓捕时黄色脚爪前伸
+  if (mode === 'dive' || mode === 'catch') {
+    ctx.strokeStyle = '#E8B33B'; ctx.lineWidth = 3.6; ctx.lineCap = 'round';
+    for (const dy of [10, 15]) {
+      ctx.beginPath(); ctx.moveTo(20, dy); ctx.lineTo(47, dy + 6); ctx.stroke();
+      ctx.strokeStyle = '#2A2D33'; ctx.lineWidth = 1.8;   // 黑色爪钩
+      ctx.beginPath(); ctx.moveTo(47, dy + 6); ctx.lineTo(52, dy + 4); ctx.moveTo(47, dy + 6); ctx.lineTo(51, dy + 9); ctx.stroke();
+      ctx.strokeStyle = '#E8B33B'; ctx.lineWidth = 3.6;
+    }
+  } else {
+    ctx.fillStyle = '#E8B33B';
+    ctx.beginPath(); ctx.ellipse(-26, 9, 5, 3, 0.2, 0, TAU); ctx.fill();
+  }
+
+  // 近侧翅
+  falconWing(4, -9, nearA - flap, wingLen, wingSweep, '#5E7085', '#43536A');
+  ctx.restore();
+}
+function falconWing(sx, sy, angle, len, sweep, color, tipColor) {
+  ctx.save();
+  ctx.translate(sx, sy); ctx.rotate(angle);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(2, -4);
+  ctx.quadraticCurveTo(-len * 0.45, -16 * sweep, -len, -5);
+  const chord = 20 * sweep;
+  ctx.lineTo(-len + 6, -5 + chord * 0.55);
+  ctx.lineTo(-len + 14, -5 + chord * 0.42);
+  ctx.lineTo(-len + 20, -5 + chord * 0.66);
+  ctx.lineTo(-len + 27, -5 + chord * 0.5);
+  ctx.lineTo(-len + 30, -5 + chord * 0.8);
+  ctx.quadraticCurveTo(-len * 0.4, 8 * sweep + chord * 0.45, 2, 8);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = tipColor;
+  ctx.beginPath();
+  ctx.moveTo(-len, -5); ctx.lineTo(-len + 6, -5 + chord * 0.55); ctx.lineTo(-len + 14, -5 + chord * 0.42); ctx.lineTo(-len + 6, -5 - 2);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+/* ============================================================================
+ * 17. 渲染 —— HUD / 预警特效 / 各界面
+ * ========================================================================== */
+function drawIconSpeaker(x, y, muted) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = '#4A3A28';
+  ctx.beginPath(); ctx.moveTo(-8, -4); ctx.lineTo(-3, -4); ctx.lineTo(3, -9); ctx.lineTo(3, 9); ctx.lineTo(-3, 4); ctx.lineTo(-8, 4); ctx.closePath(); ctx.fill();
+  if (!muted) {
+    ctx.strokeStyle = '#4A3A28'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(4, 0, 6, -0.9, 0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(4, 0, 10, -0.8, 0.8); ctx.stroke();
+  } else {
+    ctx.strokeStyle = '#B44A3A'; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(6, -6); ctx.lineTo(14, 6); ctx.moveTo(14, -6); ctx.lineTo(6, 6); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawIconPause(x, y) {
+  ctx.fillStyle = '#4A3A28';
+  rr(x - 7, y - 8, 5, 16, 2); ctx.fill();
+  rr(x + 2, y - 8, 5, 16, 2); ctx.fill();
+}
+function drawHUD() {
+  // ---- 积分面板 ----
+  panel(16, 14, 236, 62, { stroke: '#D9BE8E' });
+  txt('积分', 34, 40, { size: 16, color: '#8A6A48' });
+  txt(String(Game.score), 118, 52, { size: 34, weight: 800, color: '#4A2410', align: 'center' });
+  txt('/ ' + CONFIG.GOAL_SCORE, 168, 52, { size: 17, color: '#A08760' });
+  // ---- 进度条 ----
+  const bx = 16, by = 88, bw = 320, bh = 16;
+  rr(bx, by, bw, bh, 8); ctx.fillStyle = 'rgba(60,40,20,0.25)'; ctx.fill();
+  const k = clamp(Game.score / CONFIG.GOAL_SCORE, 0, 1);
+  if (k > 0) {
+    const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    g.addColorStop(0, '#8FBF5A'); g.addColorStop(0.7, '#E8C34A'); g.addColorStop(1, '#F09A3E');
+    rr(bx + 2, by + 2, Math.max(6, (bw - 4) * k), bh - 4, 6); ctx.fillStyle = g; ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(90,60,30,0.4)'; ctx.lineWidth = 1.5;
+  rr(bx, by, bw, bh, 8); ctx.stroke();
+  for (const m of [300, 700]) {   // 阶段刻度
+    const tx = bx + bw * (m / CONFIG.GOAL_SCORE);
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.beginPath(); ctx.moveTo(tx, by + 2); ctx.lineTo(tx, by + bh - 2); ctx.stroke();
+  }
+  txt(`阶段 ${Spawner.tierIndex(Game.score) + 1}/3`, bx, 124, { size: 15, color: '#8A6A48' });
+  txt('高级食物变少，刷新变慢', bx + 78, 124, { size: 14, color: '#A08760', alpha: 0.85 });
+  // ---- 扑翼冷却指示 ----
+  const cxp = 372, cyp = 96;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cxp, cyp, 17, 0, TAU); ctx.fillStyle = 'rgba(255,250,240,0.85)'; ctx.fill();
+  const ready = Game.dove.dashCd <= 0;
+  const frac = ready ? 1 : 1 - clamp(Game.dove.dashCd / CONFIG.DOVE.dashCd, 0, 1);
+  ctx.beginPath(); ctx.moveTo(cxp, cyp); ctx.arc(cxp, cyp, 17, -Math.PI / 2, -Math.PI / 2 + TAU * frac); ctx.closePath();
+  ctx.fillStyle = ready ? 'rgba(140,200,90,0.75)' : 'rgba(200,170,90,0.55)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(90,60,30,0.45)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cxp, cyp, 17, 0, TAU); ctx.stroke();
+  // 小翅膀图标
+  ctx.fillStyle = '#4A2410';
+  ctx.beginPath(); ctx.moveTo(cxp - 8, cyp + 4); ctx.quadraticCurveTo(cxp - 2, cyp - 9, cxp + 8, cyp - 6); ctx.quadraticCurveTo(cxp + 2, cyp + 1, cxp + 6, cyp + 6); ctx.quadraticCurveTo(cxp, cyp + 3, cxp - 8, cyp + 4); ctx.fill();
+  ctx.restore();
+  txt('扑翼', cxp, cyp + 34, { size: 13, align: 'center', color: '#8A6A48' });
+  // ---- 右上角：静音 / 暂停按钮 ----
+  const bx2 = CONFIG.VIEW_W - 118;
+  rr(bx2, 14, 46, 40, 10); ctx.fillStyle = 'rgba(255,250,240,0.9)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(90,60,30,0.35)'; ctx.stroke();
+  drawIconSpeaker(bx2 + 20, 34, Sound.muted);
+  rr(bx2 + 56, 14, 46, 40, 10); ctx.fillStyle = 'rgba(255,250,240,0.9)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(90,60,30,0.35)'; ctx.stroke();
+  drawIconPause(bx2 + 79, 34);
+  uiButtons.push({ id: 'mute', x: bx2, y: 14, w: 46, h: 40 }, { id: 'pause', x: bx2 + 56, y: 14, w: 46, h: 40 });
+  if (Input.mouse.x >= bx2 && Input.mouse.x <= bx2 + 46 && Input.mouse.y >= 14 && Input.mouse.y <= 54) hoverPointer = true;
+  if (Input.mouse.x >= bx2 + 56 && Input.mouse.x <= bx2 + 102 && Input.mouse.y >= 14 && Input.mouse.y <= 54) hoverPointer = true;
+  // ---- 游隼状态提示 ----
+  if (Game.falcon.state === 'warning') {
+    // 屏幕边缘红色警示框（脉冲）
+    const a = 0.35 + 0.3 * Math.abs(Math.sin(Game.time * 10));
+    ctx.save(); ctx.strokeStyle = `rgba(220,60,40,${a})`; ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, CONFIG.VIEW_W - 10, CONFIG.VIEW_H - 10);
+    ctx.restore();
+    // 横幅
+    const bwid = 470, bx3 = (CONFIG.VIEW_W - bwid) / 2;
+    ctx.save();
+    ctx.translate(CONFIG.VIEW_W / 2, 96 + Math.sin(Game.time * 18) * 2);
+    const bg = ctx.createLinearGradient(0, -30, 0, 22);
+    bg.addColorStop(0, '#E8543C'); bg.addColorStop(1, '#B83424');
+    rr(-bwid / 2, -28, bwid, 50, 14); ctx.fillStyle = bg; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,220,200,0.8)'; ctx.lineWidth = 2; ctx.stroke();
+    // 警示三角
+    ctx.fillStyle = '#FFE9B0';
+    ctx.beginPath(); ctx.moveTo(-bwid / 2 + 26, 10); ctx.lineTo(-bwid / 2 + 40, -14); ctx.lineTo(-bwid / 2 + 54, 10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#B83424'; ctx.fillRect(-bwid / 2 + 38.6, -8, 2.8, 10); ctx.beginPath(); ctx.arc(-bwid / 2 + 40, 5.4, 1.5, 0, TAU); ctx.fill();
+    txt('游隼来袭！快躲进树林！', 24, 9, { size: 26, weight: 800, color: '#FFF6E8', align: 'center', stroke: 'rgba(90,20,10,0.5)', strokeW: 4 });
+    ctx.restore();
+  } else if (Game.falcon.active) {
+    ctx.save();
+    rr(CONFIG.VIEW_W / 2 - 96, 24, 192, 40, 20);
+    ctx.fillStyle = 'rgba(180,50,36,0.85)'; ctx.fill();
+    txt('游隼在场！', CONFIG.VIEW_W / 2, 51, { size: 21, weight: 700, color: '#FFF0E4', align: 'center' });
+    ctx.restore();
+  }
+  // ---- 底部按键提示 ----
+  const hint = '←→/AD 移动   ↑↓/WS 换层·上下窗台   空格 扑翼加速   P 暂停   M 静音';
+  ctx.save(); ctx.globalAlpha = 0.72;
+  const hw = 760;
+  rr((CONFIG.VIEW_W - hw) / 2, CONFIG.VIEW_H - 44, hw, 32, 16);
+  ctx.fillStyle = 'rgba(50,36,24,0.55)'; ctx.fill();
+  txt(hint, CONFIG.VIEW_W / 2, CONFIG.VIEW_H - 21, { size: 16, color: '#F5EAD8', align: 'center' });
+  ctx.restore();
+  // 窗台首次提示
+  if (Game.dove.onSillHint && Game.dove.row === 'sill' && Game.playT < 90 && !Game.hintSillShown) {
+    txt('按 ↓/S 跳回地面 · 窗台不安全！', Game.dove.x - Game.cam.x, ROW_Y.sill - 92, { size: 17, weight: 700, align: 'center', color: '#B8542C', stroke: 'rgba(255,248,230,0.9)', strokeW: 4 });
+    if (Game.dove.row !== 'sill') Game.hintSillShown = true;
+  }
+  if (CONFIG.DEBUG) {
+    txt(`DEBUG 状态:${Game.state} 隼:${Game.falcon.state} 威胁占比:${(Game.threatT / Math.max(Game.playT, 1) * 100).toFixed(0)}% 食物:${Game.foods.length} 安全:${Game.dove.isSafe()}`, 16, 150, { size: 14, color: '#2E5E2E', weight: 700 });
+  }
+}
+function drawWarningShadow() {   // 预警期地面移动阴影
+  const f = Game.falcon;
+  if (f.state !== 'warning') return;
+  ctx.save(); ctx.translate(-Game.cam.x, 0);
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = '#1E2830';
+  ctx.beginPath(); ctx.ellipse(f.shadowX, ROW_Y.street + 6, 150, 26, 0, 0, TAU); ctx.fill();
+  ctx.globalAlpha = 0.13;
+  ctx.beginPath(); ctx.ellipse(f.shadowX, ROW_Y.street + 6, 220, 36, 0, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawTitle() {
+  // 半透明底卡
+  ctx.save();
+  ctx.fillStyle = 'rgba(46,30,18,0.42)'; ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H);
+  // 标题
+  txt('珠颈斑鸠', CONFIG.VIEW_W / 2, 128, { size: 76, weight: 900, align: 'center', color: '#FFF6E2', stroke: '#5A3418', strokeW: 10 });
+  txt('街区历险记', CONFIG.VIEW_W / 2, 216, { size: 76, weight: 900, align: 'center', color: '#FFE2B8', stroke: '#5A3418', strokeW: 10 });
+  txt('吃到 1000 分 · 长大成城市斑鸠', CONFIG.VIEW_W / 2, 258, { size: 23, align: 'center', color: '#F7E8CE', stroke: 'rgba(70,40,20,0.6)', strokeW: 4 });
+
+  // 左卡：斑鸠展示（插画式，轻微待机动画）
+  panel(150, 320, 300, 250, { fill: 'rgba(255,250,240,0.96)', stroke: '#D9BE8E' });
+  drawDoveShadow(300, 530);
+  drawDove({ x: 300, y: 530, facing: 1, t: Game.time, mode: 'idle', phase: Game.time * 2, scale: 1.9 });
+  txt('珠颈斑鸠（你）', 300, 348, { size: 20, weight: 700, align: 'center', color: '#7A4A22' });
+  txt('颈戴“珍珠项链” · 温顺觅食', 300, 556, { size: 15, align: 'center', color: '#A07850' });
+
+  // 右卡：游隼展示（滑翔姿态上下轻浮）
+  panel(830, 320, 300, 250, { fill: 'rgba(240,244,250,0.96)', stroke: '#AEBBD1' });
+  drawFalcon({ x: 980, y: 438 + Math.sin(Game.time * 1.6) * 10, ang: Math.sin(Game.time * 0.9) * 0.12 - 0.05, mode: 'glide', t: Game.time });
+  txt('游隼（天敌）', 980, 348, { size: 20, weight: 700, align: 'center', color: '#3E4A5C' });
+  txt('黑头盔 · 髭纹 · 高速俯冲', 980, 556, { size: 15, align: 'center', color: '#6A7A8E' });
+
+  // 中卡：玩法说明
+  panel(478, 312, 324, 268, { fill: 'rgba(255,252,244,0.96)', stroke: '#D9BE8E' });
+  txt('怎么玩', 640, 342, { size: 20, weight: 800, align: 'center', color: '#7A4A22' });
+  const lines = [
+    '· 吃食物攒分：小米+1 玉米+2 花生+3',
+    '· 窗台常有人撒粮（主来源），路上偶有掉落',
+    '· 积满 1000 分通关，飞向城市！',
+    '· 红色预警 = 游隼要来了，',
+    '   快跑进树林/灌木丛（绿光安全区）',
+    '· 窗台不安全；空格扑翼加速可逃生',
+  ];
+  lines.forEach((l, i) => txt(l, 496, 376 + i * 27, { size: 16, color: '#5A4634' }));
+  txt('↑↓ 在 街道/人行道/窗台 间移动', 496, 376 + 6 * 27, { size: 16, color: '#8A6A48' });
+
+  button('start', CONFIG.VIEW_W / 2 - 130, 610, 260, 62, '开 始 游 戏', { size: 28 });
+  txt('P 暂停 · M 静音 · R 重开 · 矢量绘制 / WebAudio 合成 · 零外部素材', CONFIG.VIEW_W / 2, 700, { size: 14, align: 'center', color: 'rgba(255,240,220,0.75)' });
+  ctx.restore();
+}
+function drawFailOverlay() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(40,16,10,0.55)'; ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H);
+  panel(CONFIG.VIEW_W / 2 - 290, 190, 580, 320, { fill: 'rgba(255,246,238,0.97)', stroke: '#D89A80' });
+  txt('被游隼吃掉了…', CONFIG.VIEW_W / 2, 268, { size: 46, weight: 900, align: 'center', color: '#B83424' });
+  txt(`本局积分  ${Game.score} / ${CONFIG.GOAL_SCORE}`, CONFIG.VIEW_W / 2, 322, { size: 26, weight: 700, align: 'center', color: '#5A4634' });
+  const diff = CONFIG.GOAL_SCORE - Game.score;
+  txt(diff > 0 ? `再攒 ${diff} 分就能通关，再试一次！` : '差一点点就通关了！', CONFIG.VIEW_W / 2, 356, { size: 17, align: 'center', color: '#A07850' });
+  const e = Game.eaten;
+  txt(`吃下 小米×${e.millet} · 玉米×${e.corn} · 花生米×${e.peanut}`, CONFIG.VIEW_W / 2, 392, { size: 16, align: 'center', color: '#8A6A48' });
+  button('restart', CONFIG.VIEW_W / 2 - 232, 424, 220, 56, '重新开始 (R)', { size: 22 });
+  button('menu', CONFIG.VIEW_W / 2 + 12, 424, 220, 56, '回主菜单', { style: 'ghost', size: 22 });
+  txt('提示：听到啸叫就往最近的树林跑，绿色光圈里绝对安全', CONFIG.VIEW_W / 2, 494, { size: 15, align: 'center', color: '#B8542C' });
+  ctx.restore();
+}
+function drawPauseOverlay() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(30,24,18,0.5)'; ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H);
+  txt('已暂停', CONFIG.VIEW_W / 2, 330, { size: 54, weight: 900, align: 'center', color: '#FFF6E2', stroke: 'rgba(60,40,20,0.8)', strokeW: 8 });
+  button('pause', CONFIG.VIEW_W / 2 - 110, 380, 220, 54, '继 续 (P)', { size: 22 });
+  ctx.restore();
+}
+function drawWinScene() {
+  const t = Game.winT;
+  // 天空（金色暖阳）
+  const g = ctx.createLinearGradient(0, 0, 0, CONFIG.VIEW_H);
+  g.addColorStop(0, '#8FC6E8'); g.addColorStop(0.5, '#F2DFAE'); g.addColorStop(1, '#F8CE8E');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H);
+  const sg = ctx.createRadialGradient(1000, 200, 20, 1000, 200, 260);
+  sg.addColorStop(0, 'rgba(255,248,220,0.95)'); sg.addColorStop(1, 'rgba(255,240,200,0)');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(1000, 200, 260, 0, TAU); ctx.fill();
+  for (const c of DECOR.clouds) drawCloud(((c.x + t * c.spd * 0.6) % (CONFIG.VIEW_W + 400)) - 200, c.y + 60, c.s * 1.2);
+  // 远处城市天际线（逐渐放大 = 斑鸠飞向城市）
+  const grow = lerp(0.55, 1.3, clamp(t / 4.5, 0, 1));
+  ctx.save();
+  ctx.translate(CONFIG.VIEW_W * 0.72, 560);
+  ctx.scale(grow, grow);
+  ctx.fillStyle = 'rgba(120,130,160,0.75)';
+  for (const b of DECOR.mid) ctx.fillRect(b.x * 0.55 - 900, -b.h, b.w * 0.8, b.h);
+  ctx.fillStyle = 'rgba(90,100,130,0.85)';
+  ctx.fillRect(-900, -60, 2200, 80);
+  ctx.restore();
+  // 斑鸠沿贝塞尔飞向天际线（体型略大、羽毛更亮）
+  const k = easeInOut(clamp(t / 4.2, 0, 1));
+  const px = lerp(lerp(200, 520, k), 880, k * k);
+  const py = lerp(lerp(580, 380, k), 250, k * k) + Math.sin(t * 3) * 8;
+  const scl = lerp(1.15, 0.55, k);
+  drawDove({ x: px, y: py, facing: 1, t, mode: 'win', scale: scl, fancy: true });
+  Particles.draw();
+  txt('通关！珠颈斑鸠长大了，飞向城市！', CONFIG.VIEW_W / 2, 96, { size: 38, weight: 900, align: 'center', color: '#FFF8E8', stroke: '#8A5A20', strokeW: 7, alpha: clamp(t / 1.2, 0, 1) });
+  if (t < 0.8) { ctx.fillStyle = `rgba(255,250,230,${0.8 * (1 - t / 0.8)})`; ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H); }
+  if (Game.state === 'win') {
+    panel(CONFIG.VIEW_W / 2 - 280, 560, 560, 128, { fill: 'rgba(255,250,240,0.96)', stroke: '#E0C48E' });
+    txt(`总积分 ${Game.score} · 用时 ${Math.floor(Game.playT / 60)}分${Math.floor(Game.playT % 60)}秒`, CONFIG.VIEW_W / 2, 598, { size: 22, weight: 700, align: 'center', color: '#5A4634' });
+    const e = Game.eaten;
+    txt(`共吃下 小米×${e.millet} · 玉米×${e.corn} · 花生米×${e.peanut}`, CONFIG.VIEW_W / 2, 628, { size: 16, align: 'center', color: '#8A6A48' });
+    button('winAgain', CONFIG.VIEW_W / 2 - 130, 640, 130, 40, '再玩一次', { size: 18 });
+    button('menu', CONFIG.VIEW_W / 2 + 6, 640, 124, 40, '主菜单', { style: 'ghost', size: 18 });
+  }
+}
+
+/* ============================================================================
+ * 18. 渲染总装
+ * ========================================================================== */
+function render() {
+  uiButtons = []; hoverPointer = false;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H);
+
+  if (Game.state === 'winAnim' || Game.state === 'win') {
+    drawWinScene();
+  } else {
+    // ---- 世界（横向卷轴）----
+    ctx.save();
+    if (Game.shake > 0) ctx.translate(rand(-Game.shake, Game.shake) * 0.4, rand(-Game.shake, Game.shake) * 0.4);
+    drawSky();
+    drawSkyline();
+    ctx.save(); ctx.translate(-Game.cam.x, 0);
+    drawGround();
+    for (const l of DECOR.lamps) drawLamp(l);
+    for (const b of BUILDINGS) drawBuilding(b);
+    for (const g of GROVES) drawGroveBack(g);
+    drawSafeZones();
+    drawWarningShadow();
+    drawFoods();
+    if (Game.state !== 'title') {
+      if (Game.state === 'caught') {
+        // 斑鸠被抓住，挂在隼爪上
+        const tal = Game.falcon.talon();
+        drawDove({ x: tal.x, y: tal.y + 20, facing: -1, t: Game.time, mode: 'drop', rot: 0.5, alpha: 1 });
+      } else {
+        Game.dove.render();
+      }
+    }
+    for (const g of GROVES) drawGroveFront(g);
+    if (Game.falcon.active || Game.falcon.state === 'catch') Game.falcon.render();
+    Floats.draw();
+    ctx.restore();
+    Particles.draw();
+    // 顶部暖光
+    const lg = ctx.createLinearGradient(0, 0, 0, 300);
+    lg.addColorStop(0, 'rgba(255,240,200,0.16)'); lg.addColorStop(1, 'rgba(255,240,200,0)');
+    ctx.fillStyle = lg; ctx.fillRect(0, 0, CONFIG.VIEW_W, 300);
+    if (Game.flash > 0) { ctx.fillStyle = `rgba(200,40,20,${Game.flash * 0.5})`; ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H); }
+    ctx.restore();
+
+    // ---- 界面层 ----
+    if (Game.state === 'title') drawTitle();
+    else if (Game.state === 'pause') { drawHUD(); drawPauseOverlay(); }
+    else if (Game.state === 'fail') drawFailOverlay();
+    else drawHUD();
+  }
+  canvas.style.cursor = hoverPointer ? 'pointer' : 'default';
+}
+
+/* ============================================================================
+ * 19. 主循环：requestAnimationFrame + 固定逻辑步长（1/60s）
+ * ========================================================================== */
+const STEP = 1 / 60;
+let lastTs = 0, acc = 0, rafCb = null;
+function frame(ts) {
+  if (!lastTs) lastTs = ts;
+  let dt = (ts - lastTs) / 1000;
+  lastTs = ts;
+  if (dt > 0.1) dt = 0.1;              // 切后台回来防跳变
+  processClick();
+  acc += dt;
+  while (acc >= STEP) { Game.update(STEP); acc -= STEP; }
+  Input.endFrame();
+  render();
+  rafCb = requestAnimationFrame(frame);
+}
+
+/* ============================================================================
+ * 20. 启动 & 对外接口（精灵替换 / 调试 / 自检）
+ * ========================================================================== */
+Input.init();
+window.addEventListener('blur', () => { if (Game.state === 'play') Game.state = 'pause'; });
+canvas.addEventListener('mousedown', e => { const p = toLogical(e); pendingClick = p; });
+requestAnimationFrame(frame);
+
+// 浏览器控制台可用：__game.addScore(100) / __game.forceDive() 等做自检
+window.__game = {
+  CONFIG, Game, Spawner, Sound, Sprites, Input,
+  get dove() { return Game.dove; },
+  get falcon() { return Game.falcon; },
+  get foods() { return Game.foods; },
+  addScore(n) { Game.addScore(n, Game.dove.x, Game.dove.y - 60); },
+  spawnFoodAt(x, row, kind, b) { const f = new Food(kind, x, row, b == null ? null : b); f.dropT = 0; Game.foods.push(f); return f; },
+  forceDive() { const F = Game.falcon; F.state = 'dive'; F.diveT = 0; F.x = Game.dove.x + 12; F.y = 270; F.vx = 0; F.vy = CONFIG.FALCON.diveSpeed; },
+};
+window.setSprite = setSprite;
+
+})();
+</script>
+</body>
+</html>
