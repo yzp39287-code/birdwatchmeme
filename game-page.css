@@ -4,5 +4,6 @@
 @media(max-width:760px){.game-box-shell{width:calc(100% - 24px);padding:34px 0 70px}.game-grid{grid-template-columns:1fr}.game-card{min-height:430px}.game-card-art{height:220px}.game-card-copy h2{font-size:25px}.game-card-copy p{min-height:0}.game-box-heading>p:last-child{font-size:16px}}
 .game-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.heron-game{background:linear-gradient(160deg,#65406f,#2c244a)}.heron-game .game-card-art{background:linear-gradient(#4b386a 0 38%,#db6d79 38% 54%,#365d67 54%)}.night-heron-game-shell{--game-width:1280px;--game-height:720px}
 @media(max-width:760px){.game-grid{grid-template-columns:1fr}}
+.blackbird-game{background:linear-gradient(160deg,#28333b,#101a20)}.blackbird-game .game-card-art{background:linear-gradient(#9fc2d0 0 43%,#8a9b78 43% 57%,#29492f 57%)}.blackbird-game-shell{--game-width:1280px;--game-height:720px}
 .game-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.lite-game{background:linear-gradient(160deg,#a26035,#395846)}.lite-game .game-card-art{background:linear-gradient(#bfe3f2 0 44%,#d8c79d 44% 58%,#4d7650 58%)}
 @media(max-width:760px){.game-grid{grid-template-columns:1fr}}
