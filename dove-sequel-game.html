@@ -15,7 +15,7 @@
       <section id="gameGate" class="private-game-gate"><div><h2>正在开发中</h2><p id="gateMessage">正在核验管理员身份……</p><p class="gate-state">仅网站管理员可以进入测试版本</p></div></section>
       <iframe id="gameFrame" class="game-frame hidden" title="鸠子街区历险记后传3D小游戏" allow="fullscreen" allowfullscreen></iframe>
     </div>
-    <p class="game-tip">此页面会同时验证登录身份和服务器权限；普通访客不会加载游戏文件。</p>
+    <p class="game-tip">此页面会通过 Supabase 验证管理员身份；普通访客不会下载游戏文件。</p>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script src="dove-sequel-access.js"></script>
 </body>
