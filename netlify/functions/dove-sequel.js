@@ -13,7 +13,10 @@ exports.handler=async event=>{
     if(!response.ok)return{statusCode:401,body:"Unauthorized"};
     const user=await response.json();
     if(user.id!==ADMIN_USER_ID)return{statusCode:403,body:"Forbidden"};
-    const html=fs.readFileSync(path.join(__dirname,"dove-sequel.html"),"utf8");
+    const candidates=[path.join(__dirname,"dove-sequel.html"),path.join(process.cwd(),"netlify/functions/dove-sequel.html"),path.join(process.cwd(),"dove-sequel.html")];
+    const gamePath=candidates.find(fs.existsSync);
+    if(!gamePath)throw new Error("Protected game file was not bundled");
+    const html=fs.readFileSync(gamePath,"utf8");
     return{statusCode:200,headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"private, no-store","X-Robots-Tag":"noindex, nofollow"},body:html};
   }catch(error){console.error(error);return{statusCode:500,body:"Game unavailable"};}
 };
