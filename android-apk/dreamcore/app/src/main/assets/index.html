@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Dreamcore 3D 梦核漫游 - 优化版</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+    #ui-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .hud-title {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      color: rgba(255, 255, 255, 0.95);
+      text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      pointer-events: auto;
+      background: rgba(0,0,0,0.35);
+      padding: 7px 14px;
+      border-radius: 12px;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .switch-btn {
+      position: absolute;
+      top: 16px;
+      right: 18px;
+      background: rgba(255, 255, 255, 0.28);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      pointer-events: auto;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .switch-btn:active {
+      transform: scale(0.95);
+      background: rgba(255, 255, 255, 0.45);
+    }
+    #joystick-zone {
+      position: absolute;
+      bottom: 40px;
+      left: 28px;
+      width: 120px;
+      height: 120px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1.5px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      pointer-events: auto;
+      touch-action: none;
+    }
+    #joystick-knob {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      background: radial-gradient(circle, rgba(255,255,255,0.9), rgba(255,255,255,0.45));
+      border-radius: 50%;
+      top: 35px;
+      left: 35px;
+      pointer-events: none;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    #jump-btn {
+      position: absolute;
+      bottom: 45px;
+      right: 28px;
+      width: 65px;
+      height: 65px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1.5px solid rgba(255, 255, 255, 0.45);
+      color: #fff;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      pointer-events: auto;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+    }
+    #jump-btn:active {
+      transform: scale(0.92);
+      background: rgba(255, 255, 255, 0.45);
+    }
+    #hint {
+      position: absolute;
+      bottom: 12px;
+      width: 100%;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.65);
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <div id="ui-overlay">
+    <div class="hud-title" id="world-title">当前空间: 梦境油画云原 (图一)</div>
+    <button class="switch-btn" id="switch-btn">切换梦境维度</button>
+    <div id="joystick-zone">
+      <div id="joystick-knob"></div>
+    </div>
+    <div id="jump-btn">跳跃</div>
+    <div id="hint">实心物理防穿模 · 动态流体油画云层 · 走入光柱穿梭</div>
+  </div>
+
+  <script>
+    let currentWorld = 0; // 0: 梦境油画云原, 1: 泳池密室
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    // 玩家胶囊/碰撞体设定
+    const player = {
+      radius: 0.5,
+      height: 1.6,
+      speed: 0.12,
+      velocity: new THREE.Vector3(),
+      isGrounded: true
+    };
+    camera.position.set(0, player.height, 10);
+
+    let pitch = 0, yaw = 0;
+    const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+    const groupWorld1 = new THREE.Group();
+    const groupWorld2 = new THREE.Group();
+    scene.add(groupWorld1);
+    scene.add(groupWorld2);
+
+    // 泳池碰撞体盒子集合 (用于AABB精准防穿模)
+    const poolColliders = [];
+
+    // --- 纹理生成 ---
+    // 泳池马赛克瓷砖贴图
+    function createTileTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#2db5d6';
+      ctx.fillRect(0, 0, 256, 256);
+      const gridSize = 16;
+      for(let x = 0; x < 256; x += gridSize) {
+        for(let y = 0; y < 256; y += gridSize) {
+          const shade = (Math.random() * 40 - 20);
+          ctx.fillStyle = `rgb(${30 + shade}, ${160 + shade}, ${205 + shade})`;
+          ctx.fillRect(x + 1, y + 1, gridSize - 2, gridSize - 2);
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+          ctx.strokeRect(x, y, gridSize, gridSize);
+        }
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      return texture;
+    }
+
+    // 油画笔触质感天穹背景 (图一风格高饱和粉紫蓝涡流)
+    function createOilSkyTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+
+      // 蓝天过渡
+      const grad = ctx.createLinearGradient(0, 0, 1024, 1024);
+      grad.addColorStop(0, '#2e75d9');
+      grad.addColorStop(0.3, '#6ea6ff');
+      grad.addColorStop(0.55, '#f5bce2');
+      grad.addColorStop(0.75, '#c784dc');
+      grad.addColorStop(1, '#81b88a');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      // 模拟图一中的油画笔触与旋涡流 (Impasto brush strokes)
+      ctx.lineWidth = 14;
+      for (let i = 0; i < 90; i++) {
+        ctx.beginPath();
+        const startX = 500 + (Math.random() - 0.5) * 600;
+        const startY = 300 + (Math.random() - 0.5) * 400;
+        const colors = ['rgba(255, 230, 245, 0.45)', 'rgba(215, 175, 255, 0.4)', 'rgba(255, 255, 255, 0.5)', 'rgba(140, 210, 255, 0.35)'];
+        ctx.strokeStyle = colors[Math.floor(Math.random() * colors.length)];
+        ctx.arc(startX, startY, 40 + Math.random() * 140, 0, Math.PI * (0.8 + Math.random() * 0.8));
+        ctx.stroke();
+      }
+
+      const tex = new THREE.CanvasTexture(canvas);
+      return tex;
+    }
+
+    // 油画云彩粒子贴图：带笔触边缘与厚涂色彩
+    function createOilCloudBrushTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+
+      // 放射羽化中心 + 艺术笔触
+      const radGrad = ctx.createRadialGradient(128, 128, 10, 128, 128, 120);
+      radGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+      radGrad.addColorStop(0.4, 'rgba(255, 220, 240, 0.7)');
+      radGrad.addColorStop(0.75, 'rgba(200, 170, 230, 0.35)');
+      radGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+      ctx.fillStyle = radGrad;
+      ctx.beginPath();
+      ctx.arc(128, 128, 120, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 油画厚涂边缘杂色
+      for (let j = 0; j < 30; j++) {
+        ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255, 240, 250, 0.3)' : 'rgba(180, 210, 255, 0.25)';
+        ctx.beginPath();
+        const bx = 128 + (Math.random() - 0.5) * 140;
+        const by = 128 + (Math.random() - 0.5) * 140;
+        ctx.ellipse(bx, by, 15 + Math.random() * 25, 8 + Math.random() * 15, Math.random() * Math.PI, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    // --- 构建世界 1：梦境油画云原 (图一) ---
+    let cloudVortices = []; // 动态飘逸的油画旋涡云
+    let ribbonClouds = [];  // 长条形飘带浮云
+
+    function buildWorld1() {
+      // 丘陵地面 (起伏山峦草甸)
+      const groundGeo = new THREE.PlaneGeometry(140, 140, 50, 50);
+      groundGeo.rotateX(-Math.PI / 2);
+      const pos = groundGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        const y = Math.sin(x * 0.12) * Math.cos(z * 0.12) * 2.5 + Math.sin(x * 0.04) * 1.8;
+        pos.setY(i, y);
+      }
+      groundGeo.computeVertexNormals();
+
+      const groundMat = new THREE.MeshLambertMaterial({
+        color: 0x5a9b68,
+        flatShading: true
+      });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.position.y = -1;
+      groupWorld1.add(ground);
+
+      // 天穹穹顶
+      const skyGeo = new THREE.SphereGeometry(95, 32, 32);
+      const skyMat = new THREE.MeshBasicMaterial({
+        map: createOilSkyTexture(),
+        side: THREE.BackSide
+      });
+      const sky = new THREE.Mesh(skyGeo, skyMat);
+      groupWorld1.add(sky);
+
+      // 优化云朵 1: 油画笔触粒子群簇 (形成图一中翻涌起伏、粉白交织的梦境云山)
+      const cloudBrushTex = createOilCloudBrushTexture();
+      const numCloudClusters = 36;
+
+      for (let c = 0; c < numCloudClusters; c++) {
+        const cluster = new THREE.Group();
+        const baseRadius = 28 + Math.random() * 32;
+        const baseAngle = Math.random() * Math.PI * 2;
+        const baseY = 8 + Math.random() * 26;
+
+        cluster.position.set(
+          Math.cos(baseAngle) * baseRadius,
+          baseY,
+          Math.sin(baseAngle) * baseRadius
+        );
+
+        // 每个云簇由多层带有油画纹理与不同粉/紫/蓝色阶的贴片组成
+        const clusterPuffs = [];
+        const puffCount = 8 + Math.floor(Math.random() * 6);
+        for (let p = 0; p < puffCount; p++) {
+          const puffMat = new THREE.SpriteMaterial({
+            map: cloudBrushTex,
+            color: new THREE.Color().setHSL(0.85 + (Math.random() * 0.15 - 0.05), 0.7, 0.88),
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: false
+          });
+          const sprite = new THREE.Sprite(puffMat);
+          const s = 6 + Math.random() * 7;
+          sprite.scale.set(s, s * (0.8 + Math.random() * 0.4), 1);
+          sprite.position.set(
+            (Math.random() - 0.5) * 7,
+            (Math.random() - 0.5) * 4,
+            (Math.random() - 0.5) * 7
+          );
+          cluster.add(sprite);
+          clusterPuffs.push({
+            sprite: sprite,
+            rotSpeed: (Math.random() - 0.5) * 0.015,
+            floatOffset: Math.random() * 10
+          });
+        }
+
+        groupWorld1.add(cluster);
+        cloudVortices.push({
+          group: cluster,
+          puffs: clusterPuffs,
+          driftSpeed: 0.0006 * (Math.random() > 0.5 ? 1 : -1),
+          angle: baseAngle,
+          radius: baseRadius,
+          baseY: baseY,
+          waveFreq: 0.5 + Math.random() * 0.5
+        });
+      }
+
+      // 优化云朵 2: 图一特有的“旋转涡流/笔触飘带云” (Swirling Wind Streams)
+      for (let r = 0; r < 6; r++) {
+        const curvePoints = [];
+        const curveAngle = (r / 6) * Math.PI * 2;
+        for (let t = 0; t <= 12; t++) {
+          const u = t / 12;
+          const rad = 25 - u * 15;
+          const ang = curveAngle + u * 2.8;
+          curvePoints.push(new THREE.Vector3(
+            Math.cos(ang) * rad,
+            24 + Math.sin(u * Math.PI * 2) * 5 + u * 6,
+            Math.sin(ang) * rad
+          ));
+        }
+        const curve = new THREE.CatmullRomCurve3(curvePoints);
+        const tubeGeo = new THREE.TubeGeometry(curve, 32, 1.2, 8, false);
+        const tubeMat = new THREE.MeshLambertMaterial({
+          color: r % 2 === 0 ? 0xffe2f5 : 0xc7c0fa,
+          transparent: true,
+          opacity: 0.72,
+          roughness: 0.8
+        });
+        const ribbon = new THREE.Mesh(tubeGeo, tubeMat);
+        groupWorld1.add(ribbon);
+        ribbonClouds.push(ribbon);
+      }
+
+      // 地面梦核白色小洋甘菊微点
+      const flowerMat = new THREE.MeshLambertMaterial({ color: 0xfff4fc });
+      for(let i=0; i<45; i++) {
+        const f = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), flowerMat);
+        f.position.set((Math.random()-0.5)*70, 0, (Math.random()-0.5)*70);
+        groupWorld1.add(f);
+      }
+    }
+
+    // --- 构建世界 2：水下泳池室 (图二 Poolcore) ---
+    let poolCausticPlane;
+
+    function buildWorld2() {
+      const tileTex = createTileTexture();
+      tileTex.repeat.set(6, 6);
+
+      const poolMat = new THREE.MeshStandardMaterial({
+        map: tileTex,
+        roughness: 0.15,
+        metalness: 0.05
+      });
+
+      // 创建带实体碰撞箱（AABB）的不可穿模构件
+      const createSolidBox = (w, h, d, x, y, z) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), poolMat);
+        mesh.position.set(x, y, z);
+        groupWorld2.add(mesh);
+
+        // 生成不可穿透的精准包围盒
+        const bbox = new THREE.Box3().setFromObject(mesh);
+        poolColliders.push({
+          box: bbox,
+          minX: x - w / 2, maxX: x + w / 2,
+          minY: y - h / 2, maxY: y + h / 2,
+          minZ: z - d / 2, maxZ: z + d / 2,
+          topY: y + h / 2 // 支持站在台阶/台上
+        });
+      };
+
+      // 1. 泳池地面与天花板 (界限不可穿)
+      createSolidBox(36, 1, 36, 0, -1, 0); // 池底
+      createSolidBox(36, 1, 36, 0, 18, 0); // 顶板
+
+      // 2. 四周密室高墙 (防穿墙)
+      createSolidBox(36, 20, 2, 0, 8, -17);
+      createSolidBox(36, 20, 2, 0, 8, 17);
+      createSolidBox(2, 20, 36, -17, 8, 0);
+      createSolidBox(2, 20, 36, 17, 8, 0);
+
+      // 3. 泳池内部的实体台阶、隔断与平台（图二中的水下建筑几何构件）
+      createSolidBox(9, 2.2, 9, -5.5, 0.1, -4.5);     // 宽平台
+      createSolidBox(6.5, 4.5, 6.5, -5.5, 1.25, -4.5); // 高台阶
+      createSolidBox(12, 3.5, 2.5, 4.5, 0.75, 4.5);    // 隔水矮墙
+      createSolidBox(3.5, 5.5, 8, 8, 1.75, -6);        // 水中立柱廊台
+
+      // 4. 水波焦散纹理层 (水下光影)
+      const causticGeo = new THREE.PlaneGeometry(34, 34);
+      causticGeo.rotateX(-Math.PI / 2);
+      const causticMat = new THREE.MeshBasicMaterial({
+        color: 0x9be8ff,
+        transparent: true,
+        opacity: 0.28,
+        wireframe: true
+      });
+      poolCausticPlane = new THREE.Mesh(causticGeo, causticMat);
+      poolCausticPlane.position.y = 8.5;
+      groupWorld2.add(poolCausticPlane);
+    }
+
+    // --- 传送门 ---
+    let portalMesh, portalRing;
+    function createPortal() {
+      const pGeo = new THREE.CylinderGeometry(1.2, 1.2, 5, 24, 1, true);
+      const pMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.68
+      });
+      portalMesh = new THREE.Mesh(pGeo, pMat);
+      portalMesh.position.set(0, 1.5, -6);
+      scene.add(portalMesh);
+
+      const rGeo = new THREE.TorusGeometry(1.4, 0.12, 16, 32);
+      portalRing = new THREE.Mesh(rGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      portalRing.rotation.x = Math.PI / 2;
+      portalRing.position.set(0, 3.8, -6);
+      scene.add(portalRing);
+    }
+
+    // --- 光源配置 ---
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.85);
+    scene.add(ambLight);
+    const dirLight = new THREE.DirectionalLight(0xffeedd, 0.95);
+    dirLight.position.set(25, 45, 20);
+    scene.add(dirLight);
+
+    // --- 世界切换 ---
+    function applyWorldTheme(worldId) {
+      currentWorld = worldId;
+      if (currentWorld === 0) {
+        groupWorld1.visible = true;
+        groupWorld2.visible = false;
+        scene.fog = new THREE.FogExp2(0xd3c9ea, 0.013);
+        renderer.setClearColor(0x7ea9f5);
+        ambLight.color.setHex(0xffe8f3);
+        dirLight.color.setHex(0xffffff);
+        document.getElementById('world-title').innerText = "当前空间: 梦境油画云原 (图一)";
+      } else {
+        groupWorld1.visible = false;
+        groupWorld2.visible = true;
+        scene.fog = new THREE.FogExp2(0x00527c, 0.042);
+        renderer.setClearColor(0x024c73);
+        ambLight.color.setHex(0x1da5dc);
+        dirLight.color.setHex(0x6ef7ef);
+        document.getElementById('world-title').innerText = "当前空间: 实体水下泳池室 (图二)";
+      }
+    }
+
+    buildWorld1();
+    buildWorld2();
+    createPortal();
+    applyWorldTheme(0);
+
+    // --- 手机触控交互 (虚拟摇杆 + 视角转动) ---
+    const joyZone = document.getElementById('joystick-zone');
+    const joyKnob = document.getElementById('joystick-knob');
+    let joyTouchId = null;
+    let moveDir = { x: 0, y: 0 };
+    let lookTouchId = null;
+    let lookLast = { x: 0, y: 0 };
+
+    window.addEventListener('touchstart', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.clientX < window.innerWidth * 0.45 && joyTouchId === null) {
+          joyTouchId = t.identifier;
+          updateJoystick(t.clientX, t.clientY);
+        } else if (t.clientX >= window.innerWidth * 0.45 && lookTouchId === null) {
+          lookTouchId = t.identifier;
+          lookLast = { x: t.clientX, y: t.clientY };
+        }
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === joyTouchId) {
+          updateJoystick(t.clientX, t.clientY);
+        } else if (t.identifier === lookTouchId) {
+          const deltaX = t.clientX - lookLast.x;
+          const deltaY = t.clientY - lookLast.y;
+          lookLast = { x: t.clientX, y: t.clientY };
+
+          yaw -= deltaX * 0.005;
+          pitch -= deltaY * 0.005;
+          pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch));
+        }
+      }
+    }, { passive: false });
+
+    function resetJoystick() {
+      joyTouchId = null;
+      moveDir = { x: 0, y: 0 };
+      joyKnob.style.transform = `translate(0px, 0px)`;
+    }
+
+    window.addEventListener('touchend', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === joyTouchId) resetJoystick();
+        if (t.identifier === lookTouchId) lookTouchId = null;
+      }
+    });
+
+    window.addEventListener('touchcancel', (e) => {
+      resetJoystick();
+      lookTouchId = null;
+    });
+
+    function updateJoystick(cx, cy) {
+      const maxR = 40;
+      let dx = cx - (joyZone.offsetLeft + 60);
+      let dy = cy - (joyZone.offsetTop + 60);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > maxR) {
+        dx = (dx / dist) * maxR;
+        dy = (dy / dist) * maxR;
+      }
+      joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+      moveDir.x = dx / maxR;
+      moveDir.y = dy / maxR;
+    }
+
+    // 跳跃
+    document.getElementById('jump-btn').addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+      if (player.isGrounded) {
+        player.velocity.y = 0.17;
+        player.isGrounded = false;
+      }
+    });
+
+    // 切换世界按键
+    document.getElementById('switch-btn').addEventListener('click', () => {
+      applyWorldTheme(currentWorld === 0 ? 1 : 0);
+    });
+
+    // 键盘支持
+    const keys = {};
+    window.addEventListener('keydown', (e) => { keys[e.code] = true; });
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+    // --- 碰撞检测核心逻辑 (严密阻止穿模并支持走上阶梯) ---
+    function resolveCollisions(nextX, nextZ, currentY) {
+      const r = player.radius;
+      let allowedX = nextX;
+      let allowedZ = nextZ;
+      let targetFloorY = 0; // 默认地面高度
+
+      if (currentWorld === 1) { // 泳池密室启用碰撞
+        for (const col of poolColliders) {
+          // 判断玩家在水平投影上是否与该碰撞体发生重叠
+          const overlapX = (allowedX + r > col.minX) && (allowedX - r < col.maxX);
+          const overlapZ = (allowedZ + r > col.minZ) && (allowedZ - r < col.maxZ);
+
+          if (overlapX && overlapZ) {
+            // 如果玩家底部略高于台子表面，则判定为踩在上面
+            const playerFeetY = currentY - player.height;
+            if (playerFeetY >= col.topY - 0.45) {
+              if (col.topY > targetFloorY) targetFloorY = col.topY;
+            } else {
+              // 侧面撞击：分别分解 X 和 Z 轴，阻止穿墙穿台
+              // 尝试沿 X 轴弹开
+              if (camera.position.x <= col.minX) allowedX = Math.min(allowedX, col.minX - r);
+              else if (camera.position.x >= col.maxX) allowedX = Math.max(allowedX, col.maxX + r);
+
+              // 尝试沿 Z 轴弹开
+              if (camera.position.z <= col.minZ) allowedZ = Math.min(allowedZ, col.minZ - r);
+              else if (camera.position.z >= col.maxZ) allowedZ = Math.max(allowedZ, col.maxZ + r);
+            }
+          }
+        }
+      }
+
+      return { x: allowedX, z: allowedZ, floorY: targetFloorY };
+    }
+
+    // --- 动画循环 ---
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      // 视角更新
+      euler.y = yaw;
+      euler.x = pitch;
+      camera.quaternion.setFromEuler(euler);
+
+      // 移动计算
+      let forward = -moveDir.y;
+      let side = moveDir.x;
+
+      if (keys['KeyW']) forward += 1;
+      if (keys['KeyS']) forward -= 1;
+      if (keys['KeyA']) side -= 1;
+      if (keys['KeyD']) side += 1;
+
+      const moveVector = new THREE.Vector3(side, 0, -forward);
+      moveVector.applyEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
+      moveVector.normalize();
+
+      if (Math.abs(forward) > 0.05 || Math.abs(side) > 0.05) {
+        const stepX = moveVector.x * player.speed;
+        const stepZ = moveVector.z * player.speed;
+
+        // 碰撞预测与处理
+        const resolved = resolveCollisions(camera.position.x + stepX, camera.position.z + stepZ, camera.position.y);
+        camera.position.x = resolved.x;
+        camera.position.z = resolved.z;
+      }
+
+      // 检查当前脚下的支撑面（支持台阶高度跟随）
+      const currentSupport = resolveCollisions(camera.position.x, camera.position.z, camera.position.y);
+      const groundHeight = currentSupport.floorY + player.height;
+
+      // 重力与下落
+      player.velocity.y -= 0.008;
+      camera.position.y += player.velocity.y;
+
+      if (camera.position.y <= groundHeight) {
+        camera.position.y = groundHeight;
+        player.velocity.y = 0;
+        player.isGrounded = true;
+      }
+
+      // --- 优化云朵动态行为 (图一油画感自发流动) ---
+      if (currentWorld === 0) {
+        // 1. 云簇整体缓缓随气流涡旋运动，伴随正弦沉浮
+        for (let i = 0; i < cloudVortices.length; i++) {
+          const cv = cloudVortices[i];
+          cv.angle += cv.driftSpeed;
+          cv.group.position.x = Math.cos(cv.angle) * cv.radius;
+          cv.group.position.z = Math.sin(cv.angle) * cv.radius;
+          cv.group.position.y = cv.baseY + Math.sin(time * cv.waveFreq + i) * 1.2;
+
+          // 2. 每个云簇内的油画粒子缓慢自转微动，产生如颜料翻涌的飘逸感
+          for (let p = 0; p < cv.puffs.length; p++) {
+            const puff = cv.puffs[p];
+            puff.sprite.material.rotation += puff.rotSpeed;
+            puff.sprite.position.y += Math.sin(time * 1.5 + puff.floatOffset) * 0.01;
+          }
+        }
+
+        // 3. 飘带云缓缓自转流动
+        for (let r = 0; r < ribbonClouds.length; r++) {
+          ribbonClouds[r].rotation.y = time * 0.03 * (r % 2 === 0 ? 1 : -1);
+        }
+      }
+
+      // 泳池焦散波动
+      if (currentWorld === 1 && poolCausticPlane) {
+        poolCausticPlane.rotation.z = time * 0.04;
+        poolCausticPlane.material.opacity = 0.22 + Math.sin(time * 2.2) * 0.08;
+      }
+
+      // 传送门检测
+      portalMesh.rotation.y += 0.02;
+      portalRing.rotation.z += 0.03;
+      if (camera.position.distanceTo(portalMesh.position) < 1.8) {
+        applyWorldTheme(currentWorld === 0 ? 1 : 0);
+        camera.position.z += 4.0;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>
