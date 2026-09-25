@@ -1,0 +1,48 @@
+name: Build Dreamcore Android APK
+
+on:
+  push:
+    branches:
+      - chatgpt/dreamcore-apk-build-20260925
+    paths:
+      - 'android-apk/dreamcore/**'
+      - '.github/workflows/build-dreamcore-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-apk/dreamcore
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Dreamcore-3D.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dreamcore-3D-Android-APK
+          path: android-apk/dreamcore/dist/Dreamcore-3D.apk
+          if-no-files-found: error
+          retention-days: 30
