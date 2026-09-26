@@ -1,0 +1,52 @@
+name: Build Weirdcore V2 Fixed APK
+
+on:
+  push:
+    branches:
+      - chatgpt/weirdcore-v2-rebuild-20260926
+    paths:
+      - 'android-apk/weirdcore-v2-fixed/**'
+      - '.github/workflows/weirdcore-v2-fixed-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-apk/weirdcore-v2-fixed
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Bundle Three.js
+        run: |
+          curl --fail --location --retry 3             https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js             --output app/src/main/assets/three.min.js
+          test -s app/src/main/assets/three.min.js
+
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Rename APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk              app/build/outputs/apk/debug/Weirdcore-V2-FIXED.apk
+          ls -lh app/build/outputs/apk/debug/Weirdcore-V2-FIXED.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Weirdcore-V2-FIXED-APK
+          path: android-apk/weirdcore-v2-fixed/app/build/outputs/apk/debug/Weirdcore-V2-FIXED.apk
+          if-no-files-found: error
