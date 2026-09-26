@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#a7d8ef">
+  <title>Weirdcore 梦核漫游 - 优化离线版</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #canvas-container { position: fixed; inset: 0; }
+    #ui-overlay { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+    .hud-title {
+      position: absolute; top: env(safe-area-inset-top, 18px); left: 16px; pointer-events: auto;
+      padding: 10px 16px; border-radius: 14px; color: rgba(255,255,255,.96); font-size: 13px; font-weight: 600;
+      letter-spacing: 1px; background: rgba(40, 40, 60, .22); border: 1px solid rgba(255,255,255,.22);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); text-shadow: 0 2px 10px rgba(0,0,0,.45);
+    }
+    .switch-btn {
+      position: absolute; top: env(safe-area-inset-top, 16px); right: 16px; pointer-events: auto; cursor: pointer;
+      padding: 9px 16px; border: 1px solid rgba(255,255,255,.48); border-radius: 999px; background: rgba(255,255,255,.28);
+      color: #fff; font-size: 12px; font-weight: 700; box-shadow: 0 6px 18px rgba(0,0,0,.22);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    }
+    .switch-btn:active { transform: scale(.96); background: rgba(255,255,255,.42); }
+    #joystick-zone {
+      position: absolute; left: 26px; bottom: calc(env(safe-area-inset-bottom, 16px) + 30px); width: 122px; height: 122px;
+      border-radius: 50%; border: 1.5px solid rgba(255,255,255,.34); background: rgba(255,255,255,.1); pointer-events: auto;
+      box-shadow: inset 0 0 24px rgba(255,255,255,.06), 0 10px 30px rgba(0,0,0,.12);
+    }
+    #joystick-knob {
+      position: absolute; left: 36px; top: 36px; width: 50px; height: 50px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.95), rgba(255,255,255,.42));
+      box-shadow: 0 4px 16px rgba(0,0,0,.24); pointer-events: none;
+    }
+    #jump-btn {
+      position: absolute; right: 26px; bottom: calc(env(safe-area-inset-bottom, 16px) + 34px); width: 68px; height: 68px;
+      border-radius: 50%; display:flex; align-items:center; justify-content:center; pointer-events: auto;
+      background: rgba(255,255,255,.25); border: 1.5px solid rgba(255,255,255,.48); color:#fff; font-weight:700; font-size: 14px;
+      box-shadow: 0 8px 20px rgba(0,0,0,.2); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    #jump-btn:active { transform: scale(.93); background: rgba(255,255,255,.42); }
+    #hint {
+      position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 10px) + 4px); text-align: center;
+      color: rgba(255,255,255,.72); font-size: 11px; letter-spacing: .45px; text-shadow: 0 1px 4px rgba(0,0,0,.72);
+      padding: 0 18px;
+    }
+  </style>
+  <script src="three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="ui-overlay">
+    <div class="hud-title" id="world-title">当前维度: 绿茸悬崖孤宅</div>
+    <button class="switch-btn" id="switch-btn">穿越维度</button>
+    <div id="joystick-zone"><div id="joystick-knob"></div></div>
+    <div id="jump-btn">跳跃</div>
+    <div id="hint">左侧摇杆移动 · 右侧滑动转动视角 · 靠近光柱可穿梭维度</div>
+  </div>
+
+  <script>
+    let currentWorld = 0;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(67, window.innerWidth / window.innerHeight, 0.1, 1200);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    const player = {
+      radius: 0.46,
+      height: 1.62,
+      speed: 0.118,
+      velocity: new THREE.Vector3(),
+      isGrounded: true
+    };
+    camera.position.set(0, player.height + 4, 18);
+
+    let pitch = -0.1, yaw = 0;
+    const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+    const groupWorld1 = new THREE.Group();
+    const groupWorld2 = new THREE.Group();
+    scene.add(groupWorld1, groupWorld2);
+
+    const collidersW1 = [];
+    const collidersW2 = [];
+    const cloudPuffsW2 = [];
+    const decorativeCloudsW1 = [];
+
+    const COLOR = {
+      skyBlue: 0x8ed0ef,
+      skyDeep: 0x88c2eb,
+      grass: 0x74d67f,
+      grassLight: 0x89f2a2,
+      ravineShadow: 0x58b66b,
+      pinkWall: 0xf8d1dc,
+      pinkRoof: 0xfff0f3,
+      tileBlue: 0xc1ebff,
+      tileBlueDark: 0x9fd8ee,
+      pastelCloud: 0xfff1fb,
+      glowBlue: 0xb9ebff
+    };
+
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function smoothstep(edge0, edge1, x) {
+      const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+      return t * t * (3 - 2 * t);
+    }
+    function fract(x) { return x - Math.floor(x); }
+    function pseudoNoise(x, z) {
+      const a = Math.sin(x * 0.11 + z * 0.07) * 0.5 + 0.5;
+      const b = Math.sin(x * 0.037 - z * 0.053 + 1.7) * 0.5 + 0.5;
+      const c = Math.cos(x * 0.09 + z * 0.13 - 0.8) * 0.5 + 0.5;
+      return (a * 0.45 + b * 0.35 + c * 0.2);
+    }
+
+    function makeCanvasTexture(w, h, painter) {
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      painter(ctx, w, h);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.anisotropy = 4;
+      return tex;
+    }
+
+    function createFluffyCloudTexture() {
+      return makeCanvasTexture(256, 256, (ctx, w, h) => {
+        const g = ctx.createRadialGradient(w/2, h/2, 8, w/2, h/2, 118);
+        g.addColorStop(0, 'rgba(255,255,255,0.96)');
+        g.addColorStop(0.4, 'rgba(255,245,252,0.72)');
+        g.addColorStop(0.76, 'rgba(235,221,245,0.28)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(w/2, h/2, 120, 0, Math.PI*2); ctx.fill();
+        for (let i = 0; i < 28; i++) {
+          const x = 128 + (Math.random() - 0.5) * 110;
+          const y = 128 + (Math.random() - 0.5) * 100;
+          const r = 15 + Math.random() * 36;
+          const sg = ctx.createRadialGradient(x, y, 0, x, y, r);
+          sg.addColorStop(0, 'rgba(255,250,253,0.44)');
+          sg.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = sg;
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+        }
+      });
+    }
+
+    function createGlowTexture(inner, outer) {
+      return makeCanvasTexture(256, 256, (ctx, w, h) => {
+        const g = ctx.createRadialGradient(w/2, h/2, 10, w/2, h/2, 110);
+        g.addColorStop(0, inner);
+        g.addColorStop(0.55, outer);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+      });
+    }
+
+    function createSkyTexture() {
+      return makeCanvasTexture(1024, 1024, (ctx, w, h) => {
+        const bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, '#9fd9f4');
+        bg.addColorStop(0.35, '#a9d8f3');
+        bg.addColorStop(0.7, '#b5e0f8');
+        bg.addColorStop(1, '#dff0fb');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        for (let i = 0; i < 34; i++) {
+          const x = Math.random() * w;
+          const y = 60 + Math.random() * 220;
+          const rw = 80 + Math.random() * 200;
+          const rh = 22 + Math.random() * 55;
+          const g = ctx.createRadialGradient(x, y, 0, x, y, rw * 0.7);
+          g.addColorStop(0, 'rgba(255,255,255,0.8)');
+          g.addColorStop(0.6, 'rgba(255,248,252,0.36)');
+          g.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.ellipse(x, y, rw, rh, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function createVelvetGrassTexture() {
+      return makeCanvasTexture(512, 512, (ctx, w, h) => {
+        const bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, '#83e293');
+        bg.addColorStop(1, '#64c975');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        for (let i = 0; i < 46000; i++) {
+          const x = Math.random() * w;
+          const y = Math.random() * h;
+          const hue = 108 + Math.random() * 18;
+          const sat = 42 + Math.random() * 16;
+          const light = 48 + Math.random() * 20;
+          ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${0.10 + Math.random() * 0.16})`;
+          ctx.fillRect(x, y, 1.2, 2.6 + Math.random() * 1.4);
+        }
+
+        for (let i = 0; i < 1400; i++) {
+          const x = Math.random() * w;
+          const y = Math.random() * h;
+          ctx.fillStyle = Math.random() > 0.55 ? 'rgba(255,255,255,0.16)' : 'rgba(210,255,220,0.1)';
+          ctx.fillRect(x, y, 1.2, 1.2);
+        }
+      });
+    }
+
+    function createTileTexture() {
+      return makeCanvasTexture(512, 512, (ctx, w, h) => {
+        const grid = 40;
+        ctx.fillStyle = '#bbebff';
+        ctx.fillRect(0, 0, w, h);
+        for (let x = 0; x < w; x += grid) {
+          for (let y = 0; y < h; y += grid) {
+            const l = 78 + ((x + y) / grid % 2) * 5 + Math.random() * 2;
+            ctx.fillStyle = `hsl(197, 78%, ${l}%)`;
+            ctx.fillRect(x + 2, y + 2, grid - 4, grid - 4);
+            const shine = ctx.createLinearGradient(x, y, x + grid, y + grid);
+            shine.addColorStop(0, 'rgba(255,255,255,0.26)');
+            shine.addColorStop(1, 'rgba(255,255,255,0.02)');
+            ctx.fillStyle = shine;
+            ctx.fillRect(x + 2, y + 2, grid - 4, grid - 4);
+            ctx.strokeStyle = 'rgba(255,255,255,0.68)';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(x + 1.5, y + 1.5, grid - 3, grid - 3);
+          }
+        }
+      });
+    }
+
+    function createSoftGlowSprite(size = 10, color = 0xffffff, opacity = 0.6, texture = null) {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: texture || createGlowTexture('rgba(255,255,255,0.9)', 'rgba(255,255,255,0.12)'),
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      }));
+      sprite.scale.set(size, size, 1);
+      return sprite;
+    }
+
+    function addBoxCollider(list, x, y, z, w, h, d, topOverride) {
+      list.push({
+        minX: x - w / 2, maxX: x + w / 2,
+        minY: y - h / 2, maxY: y + h / 2,
+        minZ: z - d / 2, maxZ: z + d / 2,
+        topY: topOverride !== undefined ? topOverride : y + h / 2
+      });
+    }
+
+    // ---------- World 1 ----------
+    function world1TerrainHeight(x, z) {
+      const islandMask = smoothstep(10, 0, Math.abs(x) * 0.72 + Math.max(0, Math.abs(z + 12) - 5.2));
+      const pathMask = smoothstep(6.5, 0, Math.abs(x) * 1.1 + Math.max(0, Math.abs(z - 5) - 14.5));
+      const plateauMask = Math.max(islandMask, pathMask);
+      const baseTop = 4.0 + (pseudoNoise(x * 0.6, z * 0.6) - 0.5) * 0.18;
+
+      let floor = -18;
+      const dx = Math.max(0, Math.abs(x) - 6.2);
+      const dz = Math.max(0, Math.abs(z - 4) - 18);
+      const ravine = Math.sqrt(dx * dx + dz * dz);
+      floor = Math.max(floor, 4.0 - Math.pow(ravine * 0.72, 1.33) - 2.0);
+      floor += (pseudoNoise(x * 1.25 + 3.1, z * 1.25 - 1.4) - 0.5) * 0.8;
+      floor = Math.min(floor, 2.8);
+
+      const h = THREE.MathUtils.lerp(floor, baseTop, plateauMask);
+      return Math.max(-18, h);
+    }
+
+    function createHouseWindow(w = 1.1, h = 1.15) {
+      const group = new THREE.Group();
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0xf9fbff, roughness: 0.55 });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0xe8faff, emissive: 0xffffff, emissiveIntensity: 0.05, transparent: true, opacity: 0.7, roughness: 0.05, metalness: 0.02 });
+      const frameDepth = 0.08;
+      const left = new THREE.Mesh(new THREE.BoxGeometry(0.12, h, frameDepth), frameMat);
+      const right = left.clone();
+      const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.12, frameDepth), frameMat);
+      const bottom = top.clone();
+      const midV = new THREE.Mesh(new THREE.BoxGeometry(0.08, h, frameDepth), frameMat);
+      const midH = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, frameDepth), frameMat);
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.18, h - 0.18), glassMat);
+      left.position.x = -w / 2 + 0.06; right.position.x = w / 2 - 0.06;
+      top.position.y = h / 2 - 0.06; bottom.position.y = -h / 2 + 0.06;
+      glass.position.z = 0.045; midV.position.z = midH.position.z = 0.05; glass.position.z = 0.03;
+      [left, right, top, bottom, midV, midH, glass].forEach(m => group.add(m));
+      return group;
+    }
+
+    function addFlowerField(group, area = {x1:-20,x2:20,z1:-24,z2:24}, count = 260) {
+      const petalGeo = new THREE.PlaneGeometry(0.12, 0.12);
+      const petalMat = new THREE.MeshBasicMaterial({ color: 0xfefeff, side: THREE.DoubleSide });
+      const centerMat = new THREE.MeshBasicMaterial({ color: 0xffec7d, side: THREE.DoubleSide });
+      for (let i = 0; i < count; i++) {
+        const x = THREE.MathUtils.lerp(area.x1, area.x2, Math.random());
+        const z = THREE.MathUtils.lerp(area.z1, area.z2, Math.random());
+        const y = world1TerrainHeight(x, z) + 0.08;
+        if (y < 1.5) continue;
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.22, 5), new THREE.MeshBasicMaterial({ color: 0x6dbf7a }));
+        stem.position.set(x, y + 0.08, z);
+        group.add(stem);
+        const flower = new THREE.Group();
+        for (let p = 0; p < 4; p++) {
+          const petal = new THREE.Mesh(petalGeo, petalMat);
+          petal.position.set(Math.cos(p * Math.PI / 2) * 0.06, 0, Math.sin(p * Math.PI / 2) * 0.06);
+          petal.rotation.x = -Math.PI / 2;
+          petal.rotation.z = p * Math.PI / 2;
+          flower.add(petal);
+        }
+        const c = new THREE.Mesh(new THREE.CircleGeometry(0.03, 10), centerMat);
+        c.rotation.x = -Math.PI / 2;
+        flower.add(c);
+        flower.position.set(x, y + 0.2, z);
+        group.add(flower);
+      }
+    }
+
+    function buildWorld1() {
+      const sky = new THREE.Mesh(
+        new THREE.SphereGeometry(220, 40, 32),
+        new THREE.MeshBasicMaterial({ map: createSkyTexture(), side: THREE.BackSide })
+      );
+      groupWorld1.add(sky);
+
+      const grassTex = createVelvetGrassTexture();
+      grassTex.repeat.set(12, 12);
+      const terrainGeo = new THREE.PlaneGeometry(130, 130, 180, 180);
+      terrainGeo.rotateX(-Math.PI / 2);
+      const pos = terrainGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), z = pos.getZ(i);
+        pos.setY(i, world1TerrainHeight(x, z));
+      }
+      terrainGeo.computeVertexNormals();
+      const terrainMat = new THREE.MeshStandardMaterial({
+        map: grassTex,
+        color: 0xffffff,
+        roughness: 0.97,
+        metalness: 0.0,
+        envMapIntensity: 0.2
+      });
+      const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+      terrain.receiveShadow = true;
+      terrain.castShadow = false;
+      groupWorld1.add(terrain);
+
+      const path = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.7, 31),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0, emissive: 0xffffff, emissiveIntensity: 0.02 })
+      );
+      path.rotation.x = -Math.PI / 2;
+      path.position.set(0, 4.06, 7);
+      path.receiveShadow = true;
+      groupWorld1.add(path);
+
+      const stepsMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92 });
+      for (let i = 0; i < 4; i++) {
+        const step = new THREE.Mesh(new THREE.BoxGeometry(2.2 - i * 0.04, 0.16, 0.65), stepsMat);
+        step.position.set(0, 4.08 + i * 0.11, -8.45 + i * 0.42);
+        step.receiveShadow = true;
+        groupWorld1.add(step);
+      }
+
+      const house = new THREE.Group();
+      house.position.set(0, 4.02, -12.1);
+      groupWorld1.add(house);
+
+      const wallMat = new THREE.MeshStandardMaterial({ color: COLOR.pinkWall, roughness: 0.85, metalness: 0.02 });
+      const trimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62 });
+      const roofMat = new THREE.MeshStandardMaterial({ color: COLOR.pinkRoof, roughness: 0.72 });
+      const wallBox = new THREE.Mesh(new THREE.BoxGeometry(5.8, 4.2, 4.8), wallMat);
+      wallBox.position.y = 2.12; wallBox.castShadow = wallBox.receiveShadow = true;
+      house.add(wallBox);
+
+      const roofSlopeGeo = new THREE.BoxGeometry(3.55, 0.16, 5.6);
+      const roofLeft = new THREE.Mesh(roofSlopeGeo, roofMat);
+      const roofRight = new THREE.Mesh(roofSlopeGeo, roofMat);
+      roofLeft.position.set(-1.68, 5.2, 0); roofRight.position.set(1.68, 5.2, 0);
+      roofLeft.rotation.z = Math.PI / 4.18; roofRight.rotation.z = -Math.PI / 4.18;
+      roofLeft.castShadow = roofLeft.receiveShadow = true;
+      roofRight.castShadow = roofRight.receiveShadow = true;
+      house.add(roofLeft, roofRight);
+
+      const frontGable = new THREE.Mesh(new THREE.ConeGeometry(2.95, 2.5, 3), wallMat);
+      const backGable = frontGable.clone();
+      frontGable.rotation.z = Math.PI / 2; backGable.rotation.z = Math.PI / 2;
+      frontGable.position.set(0, 4.95, 2.42); backGable.position.set(0, 4.95, -2.42);
+      frontGable.scale.y = 1.0; backGable.scale.y = 1.0;
+      house.add(frontGable, backGable);
+
+      const door = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.18, 0.12), trimMat);
+      door.position.set(0, 1.14, 2.46); door.castShadow = true;
+      house.add(door);
+      const doorHeader = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.15, 0.15), trimMat);
+      doorHeader.position.set(0, 2.3, 2.43); house.add(doorHeader);
+
+      const porch = new THREE.Mesh(new THREE.BoxGeometry(2.25, 0.24, 1.1), new THREE.MeshStandardMaterial({ color: 0xfafcff, roughness: 0.88 }));
+      porch.position.set(0, 0.16, 2.8); porch.receiveShadow = true;
+      house.add(porch);
+
+      const frontLeftWindow = createHouseWindow(1.05, 1.05);
+      const frontRightWindow = createHouseWindow(1.05, 1.05);
+      frontLeftWindow.position.set(-1.75, 2.0, 2.46); frontRightWindow.position.set(1.75, 2.0, 2.46);
+      house.add(frontLeftWindow, frontRightWindow);
+
+      const sideWinL = createHouseWindow(1.25, 1.0); sideWinL.position.set(-2.94, 2.05, 0.7); sideWinL.rotation.y = Math.PI / 2;
+      const sideWinR = createHouseWindow(1.25, 1.0); sideWinR.position.set(2.94, 2.05, 0.7); sideWinR.rotation.y = -Math.PI / 2;
+      house.add(sideWinL, sideWinR);
+
+      const dormerBase = new THREE.Mesh(new THREE.BoxGeometry(1.22, 1.35, 1.0), wallMat);
+      dormerBase.position.set(0.88, 5.57, 1.0); dormerBase.castShadow = dormerBase.receiveShadow = true;
+      house.add(dormerBase);
+      const dormerRoofLeft = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 1.28), roofMat);
+      const dormerRoofRight = dormerRoofLeft.clone();
+      dormerRoofLeft.position.set(0.44, 6.32, 1.0); dormerRoofRight.position.set(1.32, 6.32, 1.0);
+      dormerRoofLeft.rotation.z = Math.PI / 4.3; dormerRoofRight.rotation.z = -Math.PI / 4.3;
+      house.add(dormerRoofLeft, dormerRoofRight);
+      const dormerWindow = createHouseWindow(0.55, 0.75);
+      dormerWindow.position.set(0.88, 5.54, 1.52); house.add(dormerWindow);
+
+      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.45, 0.42), new THREE.MeshStandardMaterial({ color: 0xe9c1c9, roughness: 0.88 }));
+      chimney.position.set(-0.88, 6.55, -0.45); chimney.castShadow = chimney.receiveShadow = true;
+      house.add(chimney);
+
+      function shrubCluster(x, z, scale = 1) {
+        const bush = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0xf2a5c2, roughness: 1.0 });
+        for (let i = 0; i < 6; i++) {
+          const s = 0.5 + Math.random() * 0.35;
+          const m = new THREE.Mesh(new THREE.SphereGeometry(s, 10, 10), mat);
+          m.position.set((Math.random() - 0.5) * 1.6, 0.35 + Math.random() * 0.7, (Math.random() - 0.5) * 1.1);
+          m.scale.y = 0.8 + Math.random() * 0.4;
+          m.castShadow = m.receiveShadow = true;
+          bush.add(m);
+        }
+        bush.position.set(x, 0, z); bush.scale.setScalar(scale); house.add(bush);
+      }
+      shrubCluster(-3.45, 1.4, 1.0); shrubCluster(3.45, 1.55, 1.0);
+
+      const pineTrunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x77553a, roughness: 0.95 }));
+      pineTrunk.position.set(-1.9, 1.1, -3.0); pineTrunk.castShadow = true; house.add(pineTrunk);
+      const pine1 = new THREE.Mesh(new THREE.ConeGeometry(1.55, 2.8, 7), new THREE.MeshStandardMaterial({ color: 0x2e6942, roughness: 0.95 }));
+      pine1.position.set(-1.9, 3.2, -3.0); pine1.castShadow = true; house.add(pine1);
+      const pine2 = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.25, 7), new THREE.MeshStandardMaterial({ color: 0x245938, roughness: 0.95 }));
+      pine2.position.set(-1.9, 4.45, -3.0); pine2.castShadow = true; house.add(pine2);
+
+      const houseGlow = createSoftGlowSprite(8.6, 0xffeff7, 0.38, createGlowTexture('rgba(255,240,248,0.95)', 'rgba(255,215,235,0.12)'));
+      houseGlow.position.set(0, 4.9, 0.3); house.add(houseGlow);
+
+      for (let i = 0; i < 12; i++) {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: createFluffyCloudTexture(),
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.22,
+          depthWrite: false
+        }));
+        const s = 12 + Math.random() * 20;
+        sprite.scale.set(s, s * 0.55, 1);
+        sprite.position.set((Math.random() - 0.5) * 100, 24 + Math.random() * 14, -35 - Math.random() * 50);
+        groupWorld1.add(sprite);
+        decorativeCloudsW1.push({ sprite, baseX: sprite.position.x, baseY: sprite.position.y, baseZ: sprite.position.z, phase: Math.random() * 10 });
+      }
+
+      addFlowerField(groupWorld1);
+      addBoxCollider(collidersW1, 0, 6.2, -12.1, 7.2, 4.0, 6.8, 8.6);
+    }
+
+    // ---------- World 2 ----------
+    function buildWorld2() {
+      const cloudTex = createFluffyCloudTexture();
+      const glowTex = createGlowTexture('rgba(255,255,255,0.95)', 'rgba(210,240,255,0.08)');
+      const tileTex = createTileTexture();
+      tileTex.repeat.set(4.4, 4.4);
+      const tileMat = new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.18, metalness: 0.03 });
+      const whiteMat = new THREE.MeshStandardMaterial({ color: 0xfafcff, roughness: 0.54 });
+      const pinkTrimMat = new THREE.MeshStandardMaterial({ color: 0xf6d2de, roughness: 0.55 });
+
+      const sky = new THREE.Mesh(
+        new THREE.SphereGeometry(180, 36, 28),
+        new THREE.MeshBasicMaterial({ map: createSkyTexture(), side: THREE.BackSide })
+      );
+      groupWorld2.add(sky);
+
+      function wall(w, h, d, x, y, z, mat = tileMat, collider = true) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        m.position.set(x, y, z);
+        m.castShadow = true; m.receiveShadow = true;
+        groupWorld2.add(m);
+        if (collider) addBoxCollider(collidersW2, x, y, z, w, h, d);
+        return m;
+      }
+
+      wall(23, 1, 23, 0, -0.5, 0); // floor
+      wall(23, 1, 23, 0, 13.3, 0, tileMat, false); // thin ceiling visual
+
+      // central window wall
+      wall(6.2, 14, 1, -8.1, 6.5, -10.7);
+      wall(6.2, 14, 1, 8.1, 6.5, -10.7);
+      wall(10.0, 3.0, 1, 0, 11.9, -10.7);
+      wall(10.2, 2.2, 1.05, 0, 0.62, -10.7);
+
+      // side walls & right doorway opening feel
+      wall(1, 14, 23, -10.9, 6.5, 0);
+      wall(1, 14, 12.2, 10.9, 6.5, -5.2);
+      wall(1, 14, 4.4, 10.9, 6.5, 8.8);
+      wall(1, 4.2, 7.2, 10.9, 11.0, 4.4);
+
+      // door frame / right pink opening
+      const doorFrameTop = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.34, 5.4), pinkTrimMat);
+      doorFrameTop.position.set(10.45, 9.1, 4.2); doorFrameTop.rotation.z = Math.PI / 2; doorFrameTop.castShadow = true; groupWorld2.add(doorFrameTop);
+      const dfSide1 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 8.0, 0.3), pinkTrimMat);
+      const dfSide2 = dfSide1.clone(); dfSide1.position.set(10.5, 5.0, 1.55); dfSide2.position.set(10.5, 5.0, 6.85); groupWorld2.add(dfSide1, dfSide2);
+
+      // left window opening with pink trim
+      const leftFrame1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 9.4, 0.2), pinkTrimMat);
+      const leftFrame2 = leftFrame1.clone();
+      leftFrame1.position.set(-10.36, 6.0, -8.7); leftFrame2.position.set(-10.36, 6.0, -4.6);
+      const leftFrameTop = new THREE.Mesh(new THREE.BoxGeometry(0.2, 4.45, 0.2), pinkTrimMat);
+      leftFrameTop.rotation.z = Math.PI / 2; leftFrameTop.position.set(-10.36, 10.55, -6.65);
+      groupWorld2.add(leftFrame1, leftFrame2, leftFrameTop);
+
+      // sink counter
+      const counter = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.5, 7.2), new THREE.MeshStandardMaterial({ color: 0xe9f8ff, roughness: 0.28 }));
+      counter.position.set(-8.55, 1.25, -4.2); counter.castShadow = true; counter.receiveShadow = true; groupWorld2.add(counter);
+      addBoxCollider(collidersW2, -8.55, 1.25, -4.2, 3.8, 2.5, 7.2, 2.5);
+
+      const basin = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.2, 2.3), new THREE.MeshStandardMaterial({ color: 0xf6ffff, roughness: 0.08 }));
+      basin.position.set(-8.8, 2.44, -5.1); basin.castShadow = true; groupWorld2.add(basin);
+      const basinHole = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.18, 22), new THREE.MeshStandardMaterial({ color: 0xcaecfb, roughness: 0.15, metalness: 0.03 }));
+      basinHole.rotation.x = Math.PI / 2; basinHole.position.set(-8.8, 2.45, -5.1); groupWorld2.add(basinHole);
+      const faucetBase = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.6, 12), whiteMat);
+      faucetBase.position.set(-8.15, 2.72, -4.25); groupWorld2.add(faucetBase);
+      const faucetSpout = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.08), whiteMat);
+      faucetSpout.position.set(-7.92, 3.0, -4.25); groupWorld2.add(faucetSpout);
+      const faucetDrop = createSoftGlowSprite(0.55, 0xb7f2ff, 0.32, glowTex); faucetDrop.position.set(-8.18, 2.78, -4.78); groupWorld2.add(faucetDrop);
+
+      const cabinetLine = new THREE.Mesh(new THREE.BoxGeometry(3.85, 1.45, 7.15), new THREE.MeshStandardMaterial({ color: 0xd8eef7, roughness: 0.46 }));
+      cabinetLine.position.set(-8.56, 0.74, -4.2); groupWorld2.add(cabinetLine);
+
+      // soap and vase details
+      const soap = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.18), new THREE.MeshStandardMaterial({ color: 0xffc8d9, roughness: 0.45 }));
+      soap.position.set(-9.65, 2.56, -6.68); groupWorld2.add(soap);
+      const vase = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.7, 14), new THREE.MeshStandardMaterial({ color: 0xe8c29d, roughness: 0.75 }));
+      vase.position.set(-7.25, 2.78, -5.4); groupWorld2.add(vase);
+      for (let i = 0; i < 5; i++) {
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.45 + Math.random() * 0.2, 5), new THREE.MeshBasicMaterial({ color: 0x836c58 }));
+        stem.position.set(-7.25 + (Math.random() - 0.5) * 0.16, 3.12 + Math.random() * 0.12, -5.4 + (Math.random() - 0.5) * 0.12);
+        stem.rotation.z = (Math.random() - 0.5) * 0.2;
+        groupWorld2.add(stem);
+      }
+
+      // cloud ocean and room clouds
+      function addCloudSprite(x, y, z, scale, opacity, hueShift = 0) {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: cloudTex,
+          color: new THREE.Color().setHSL(0.82 + hueShift, 0.4, 0.94),
+          transparent: true,
+          opacity,
+          depthWrite: false
+        }));
+        sprite.position.set(x, y, z);
+        sprite.scale.set(scale, scale * 0.72, 1);
+        groupWorld2.add(sprite);
+        cloudPuffsW2.push({ sprite, baseX: x, baseY: y, baseZ: z, driftOffset: Math.random() * 20, speed: 0.0015 + Math.random() * 0.003 });
+      }
+
+      for (let i = 0; i < 48; i++) {
+        addCloudSprite((Math.random() - 0.5) * 16, 0.6 + Math.random() * 2.1, -8.6 + Math.random() * 17, 4.8 + Math.random() * 5.0, 0.72, Math.random() * 0.04);
+      }
+      for (let i = 0; i < 105; i++) {
+        addCloudSprite((Math.random() - 0.5) * 74, 0.4 + Math.random() * 6.8, -18 - Math.random() * 58, 10 + Math.random() * 14, 0.83, Math.random() * 0.05);
+      }
+
+      // top floating clouds inside room
+      for (let i = 0; i < 6; i++) {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: cloudTex, color: 0xffffff, transparent: true, opacity: 0.48, depthWrite: false
+        }));
+        const s = 4.8 + Math.random() * 2.2;
+        sprite.scale.set(s, s * 0.66, 1);
+        sprite.position.set(-6 + i * 2.4, 11.8 + Math.random() * 0.8, -7 + Math.random() * 1.4);
+        groupWorld2.add(sprite);
+        cloudPuffsW2.push({ sprite, baseX: sprite.position.x, baseY: sprite.position.y, baseZ: sprite.position.z, driftOffset: Math.random() * 20, speed: 0.0022 + Math.random() * 0.001 });
+      }
+
+      // open window glow and exterior depth
+      const windowGlow = createSoftGlowSprite(17.5, 0xe8f8ff, 0.38, glowTex);
+      windowGlow.position.set(0, 5.8, -10.1);
+      groupWorld2.add(windowGlow);
+      const windowViewMask = new THREE.Mesh(new THREE.PlaneGeometry(10.6, 8.7), new THREE.MeshBasicMaterial({ color: 0xa6d3ef, transparent: true, opacity: 0.02 }));
+      windowViewMask.position.set(0, 6.0, -10.15); groupWorld2.add(windowViewMask);
+
+      // soft pastel glows
+      const roomGlow1 = createSoftGlowSprite(20, 0xf7e7ff, 0.18, createGlowTexture('rgba(255,243,252,0.95)', 'rgba(255,243,252,0.06)'));
+      roomGlow1.position.set(0, 6.4, -1.5); groupWorld2.add(roomGlow1);
+      const roomGlow2 = createSoftGlowSprite(14, 0xd7f2ff, 0.14, glowTex);
+      roomGlow2.position.set(-6.5, 4.8, -6.0); groupWorld2.add(roomGlow2);
+    }
+
+    // ---------- Portal / Lighting ----------
+    let portalMesh, portalRing;
+    function createPortal() {
+      const pGeo = new THREE.CylinderGeometry(1.18, 1.18, 5.0, 28, 1, true);
+      const pMat = new THREE.MeshBasicMaterial({ color: 0xb7efff, side: THREE.DoubleSide, transparent: true, opacity: 0.72 });
+      portalMesh = new THREE.Mesh(pGeo, pMat);
+      scene.add(portalMesh);
+
+      const rGeo = new THREE.TorusGeometry(1.42, 0.11, 16, 36);
+      portalRing = new THREE.Mesh(rGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      portalRing.rotation.x = Math.PI / 2;
+      scene.add(portalRing);
+
+      const glow = createSoftGlowSprite(5.8, 0xc7f5ff, 0.34);
+      glow.position.set(0, 0, 0);
+      portalMesh.add(glow);
+    }
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.88);
+    scene.add(ambient);
+
+    const sun = new THREE.DirectionalLight(0xfffcf0, 1.24);
+    sun.position.set(18, 32, 16);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = -40;
+    sun.shadow.camera.right = 40;
+    sun.shadow.camera.top = 40;
+    sun.shadow.camera.bottom = -40;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 110;
+    scene.add(sun);
+
+    const fillLight = new THREE.DirectionalLight(0xd8f3ff, 0.45);
+    fillLight.position.set(-16, 18, -8);
+    scene.add(fillLight);
+
+    function applyWorld(id) {
+      currentWorld = id;
+      if (currentWorld === 0) {
+        groupWorld1.visible = true;
+        groupWorld2.visible = false;
+        scene.fog = new THREE.FogExp2(0x9ed5ef, 0.017);
+        renderer.setClearColor(0x9fd6ef);
+        ambient.color.setHex(0xffffff); ambient.intensity = 0.94;
+        sun.color.setHex(0xfff5ed); sun.intensity = 1.28;
+        fillLight.color.setHex(0xd6fbff); fillLight.intensity = 0.4;
+        portalMesh.position.set(0, 5.6, 14.0); portalRing.position.set(0, 7.95, 14.0);
+        document.getElementById('world-title').innerText = '当前维度: 绿茸悬崖孤宅';
+      } else {
+        groupWorld1.visible = false;
+        groupWorld2.visible = true;
+        scene.fog = new THREE.FogExp2(0xc9e7f6, 0.024);
+        renderer.setClearColor(0xc3e8f7);
+        ambient.color.setHex(0xf8fdff); ambient.intensity = 0.98;
+        sun.color.setHex(0xffffff); sun.intensity = 0.92;
+        fillLight.color.setHex(0xffe9f5); fillLight.intensity = 0.52;
+        portalMesh.position.set(0, 2.55, 6.2); portalRing.position.set(0, 4.9, 6.2);
+        document.getElementById('world-title').innerText = '当前维度: 云海瓷砖室';
+      }
+    }
+
+    buildWorld1();
+    buildWorld2();
+    createPortal();
+    applyWorld(0);
+
+    // ---------- Controls ----------
+    const joyZone = document.getElementById('joystick-zone');
+    const joyKnob = document.getElementById('joystick-knob');
+    let joyTouchId = null;
+    let moveDir = { x: 0, y: 0 };
+    let lookTouchId = null;
+    let lookLast = { x: 0, y: 0 };
+
+    window.addEventListener('touchstart', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.clientX < window.innerWidth * 0.45 && joyTouchId === null) {
+          joyTouchId = t.identifier;
+          updateJoystick(t.clientX, t.clientY);
+        } else if (t.clientX >= window.innerWidth * 0.45 && lookTouchId === null) {
+          lookTouchId = t.identifier;
+          lookLast = { x: t.clientX, y: t.clientY };
+        }
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === joyTouchId) {
+          updateJoystick(t.clientX, t.clientY);
+        } else if (t.identifier === lookTouchId) {
+          const dx = t.clientX - lookLast.x;
+          const dy = t.clientY - lookLast.y;
+          lookLast = { x: t.clientX, y: t.clientY };
+          yaw -= dx * 0.005;
+          pitch -= dy * 0.005;
+          pitch = Math.max(-Math.PI / 2.18, Math.min(Math.PI / 2.18, pitch));
+        }
+      }
+    }, { passive: false });
+
+    function resetJoystick() {
+      joyTouchId = null; moveDir = { x: 0, y: 0 }; joyKnob.style.transform = 'translate(0px, 0px)';
+    }
+
+    window.addEventListener('touchend', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === joyTouchId) resetJoystick();
+        if (t.identifier === lookTouchId) lookTouchId = null;
+      }
+    });
+    window.addEventListener('touchcancel', () => { resetJoystick(); lookTouchId = null; });
+
+    function updateJoystick(cx, cy) {
+      const maxR = 40;
+      let dx = cx - (joyZone.offsetLeft + 61);
+      let dy = cy - (joyZone.offsetTop + 61);
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxR) { dx = dx / dist * maxR; dy = dy / dist * maxR; }
+      joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+      moveDir.x = dx / maxR; moveDir.y = dy / maxR;
+    }
+
+    document.getElementById('jump-btn').addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+      if (player.isGrounded) {
+        player.velocity.y = 0.18;
+        player.isGrounded = false;
+      }
+    });
+
+    document.getElementById('switch-btn').addEventListener('click', () => {
+      const nextWorld = currentWorld === 0 ? 1 : 0;
+      applyWorld(nextWorld);
+      if (nextWorld === 1) camera.position.set(0, player.height + 2, -0.5);
+      else camera.position.set(0, player.height + 4, 18);
+      player.velocity.y = 0;
+    });
+
+    const keys = {};
+    window.addEventListener('keydown', (e) => { keys[e.code] = true; });
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+    // ---------- Physics ----------
+    function getGroundHeight(x, z) {
+      if (currentWorld === 0) return world1TerrainHeight(x, z);
+      return 0;
+    }
+
+    function checkCollision(nx, nz, py) {
+      const r = player.radius;
+      let allowedX = nx, allowedZ = nz;
+      let targetFloorY = getGroundHeight(allowedX, allowedZ);
+      const colliders = currentWorld === 0 ? collidersW1 : collidersW2;
+      for (const c of colliders) {
+        if (allowedX + r > c.minX && allowedX - r < c.maxX && allowedZ + r > c.minZ && allowedZ - r < c.maxZ) {
+          const feet = py - player.height;
+          if (feet >= c.topY - 0.42) {
+            if (c.topY > targetFloorY) targetFloorY = c.topY;
+          } else {
+            if (camera.position.x <= c.minX) allowedX = Math.min(allowedX, c.minX - r);
+            else if (camera.position.x >= c.maxX) allowedX = Math.max(allowedX, c.maxX + r);
+            if (camera.position.z <= c.minZ) allowedZ = Math.min(allowedZ, c.minZ - r);
+            else if (camera.position.z >= c.maxZ) allowedZ = Math.max(allowedZ, c.maxZ + r);
+          }
+        }
+      }
+      return { x: allowedX, z: allowedZ, floorY: targetFloorY };
+    }
+
+    // ---------- Animation ----------
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const time = clock.getElapsedTime();
+
+      euler.y = yaw; euler.x = pitch; camera.quaternion.setFromEuler(euler);
+
+      let forward = -moveDir.y;
+      let side = moveDir.x;
+      if (keys['KeyW']) forward += 1;
+      if (keys['KeyS']) forward -= 1;
+      if (keys['KeyA']) side -= 1;
+      if (keys['KeyD']) side += 1;
+
+      const mv = new THREE.Vector3(side, 0, -forward);
+      if (mv.lengthSq() > 0.0001) {
+        mv.applyEuler(new THREE.Euler(0, yaw, 0, 'YXZ')).normalize();
+        const stepX = mv.x * player.speed;
+        const stepZ = mv.z * player.speed;
+        const resolved = checkCollision(camera.position.x + stepX, camera.position.z + stepZ, camera.position.y);
+        camera.position.x = resolved.x;
+        camera.position.z = resolved.z;
+      }
+
+      const support = checkCollision(camera.position.x, camera.position.z, camera.position.y);
+      const groundY = support.floorY + player.height;
+      player.velocity.y -= 0.008;
+      camera.position.y += player.velocity.y;
+      if (camera.position.y <= groundY) {
+        camera.position.y = groundY;
+        player.velocity.y = 0;
+        player.isGrounded = true;
+      }
+
+      if (currentWorld === 0) {
+        for (const c of decorativeCloudsW1) {
+          c.sprite.position.x = c.baseX + Math.sin(time * 0.18 + c.phase) * 2.2;
+          c.sprite.position.y = c.baseY + Math.sin(time * 0.3 + c.phase * 1.7) * 0.9;
+        }
+      }
+      if (currentWorld === 1) {
+        for (const c of cloudPuffsW2) {
+          c.sprite.position.y = c.baseY + Math.sin(time * (0.7 + c.speed * 40) + c.driftOffset) * 0.32;
+          c.sprite.position.x = c.baseX + Math.cos(time * 0.45 + c.driftOffset) * 0.24;
+        }
+      }
+
+      if (currentWorld === 0 && camera.position.y < -15) {
+        camera.position.set(0, player.height + 4, 18);
+        player.velocity.y = 0;
+      }
+
+      portalMesh.rotation.y += 0.02;
+      portalRing.rotation.z += 0.03;
+      if (camera.position.distanceTo(portalMesh.position) < 1.85) {
+        applyWorld(currentWorld === 0 ? 1 : 0);
+        if (currentWorld === 1) camera.position.set(0, player.height + 2, -0.5);
+        else camera.position.set(0, player.height + 4, 18);
+        player.velocity.y = 0;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+
+    animate();
+  </script>
+</body>
+</html>
