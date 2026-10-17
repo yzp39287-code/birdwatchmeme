@@ -82,7 +82,7 @@
     z-index:20;color:#f0b0a0;font-size:16px;background:rgba(8,14,18,.92);text-align:center;
     line-height:2;padding:30px}
 
-/* =============== Bilibili Toy portrait UI v3 ===============
+/* =============== Bilibili Toy portrait UI v4 ===============
    The host owns the top overlay and bottom tab bar.
    All gameplay controls live in safe areas; desktop styles unchanged. */
 html,body{overscroll-behavior:none}
@@ -191,6 +191,109 @@ html.toy-mobile #crosshair{width:16px;height:16px;margin:-8px 0 0 -8px}
   #toy-help-panel{bottom:calc(145px + env(safe-area-inset-bottom))}
   html.toy-mobile #skillStatus{bottom:calc(118px + env(safe-area-inset-bottom))}
 }
+
+/* ============== V4: top-aligned information and polished action symbols ============== */
+html.toy-mobile{
+  /* Real phone: bilibili's own author/header bar is OUTSIDE the game iframe.
+     Desktop Toy phone preview: header controls can overlay the iframe; leave clearance. */
+  --toy-top-inset:calc(76px + env(safe-area-inset-top));
+}
+html.toy-mobile.toy-touch{--toy-top-inset:calc(14px + env(safe-area-inset-top))}
+html.toy-mobile #bars{
+  top:var(--toy-top-inset);
+  left:max(10px,env(safe-area-inset-left));
+  width:min(54vw,218px);
+  gap:5px;padding:8px 10px;
+  border:1px solid rgba(221,255,222,.17);
+  border-radius:13px;background:rgba(14,37,30,.80);
+  box-shadow:0 4px 16px rgba(0,0,0,.16)
+}
+html.toy-mobile #bars .label{width:44px;font-size:11px}
+html.toy-mobile #bars .bar{height:6px}
+html.toy-mobile #bestRow{font-size:10px}
+html.toy-mobile #skillStatus{
+  top:var(--toy-top-inset);
+  bottom:auto!important;
+  right:max(10px,env(safe-area-inset-right));
+  left:auto;transform:none;
+  width: min(38vw,136px);
+  max-width:136px;min-height:54px;
+  padding:10px 8px;gap:5px;
+  color:#e2f7ea;font-size:11px;
+  font-variant-numeric:tabular-nums;
+  border:1px solid rgba(221,255,222,.17);
+  border-radius:13px;background:rgba(14,37,30,.80);
+  box-shadow:0 4px 16px rgba(0,0,0,.16)
+}
+html.toy-mobile #skillStatus .bar{width:25px;min-width:15px;height:6px}
+html.toy-mobile #skillLabel{overflow-wrap:anywhere;line-height:1.25}
+html.toy-mobile #skillStatus.dim{opacity:.8}
+html.toy-mobile #toast{
+  top:calc(var(--toy-top-inset) + 82px);
+  left:50%;transform:translateX(-50%);
+  max-width:min(92vw,330px);
+  padding:7px 12px;
+  font-size:11px;line-height:1.5;
+  background:rgba(18,40,34,.82);
+  border:1px solid rgba(221,255,222,.16);
+  border-radius:13px;
+}
+html.toy-mobile #toy-help-button{
+  top:calc(var(--toy-top-inset) + 88px);
+  bottom:auto!important;
+  right:max(11px,env(safe-area-inset-right));
+  width:30px;height:30px;border-radius:50%;background:rgba(13,37,31,.82)
+}
+html.toy-mobile #toy-help-panel{
+  top:calc(var(--toy-top-inset) + 124px);
+  bottom:auto!important;
+  right:max(11px,env(safe-area-inset-right));
+  max-height: min(50vh,340px);overflow-y:auto
+}
+#toy-actions button{
+  background:linear-gradient(155deg,rgba(30,74,61,.94),rgba(15,43,38,.92));
+  border:1px solid rgba(218,255,231,.32);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 5px 13px rgba(5,24,19,.35);
+  gap:3px
+}
+#toy-actions button svg{width:25px;height:25px;flex:none;stroke:#e5fff0;
+  fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+#toy-actions button span{font-weight:650!important;font-size:11px!important;line-height:15px!important}
+#toy-action-rise{border-color:rgba(145,220,195,.35)!important}
+#toy-action-sink{border-color:rgba(145,220,195,.35)!important}
+#toy-action-fly{
+  background:linear-gradient(145deg,rgba(47,128,144,.95),rgba(22,67,82,.95))!important;
+  border-color:rgba(162,236,252,.43)!important
+}
+#toy-action-shoot{
+  background:linear-gradient(145deg,rgba(130,94,151,.94),rgba(68,47,91,.96))!important;
+  border-color:rgba(225,190,246,.43)!important
+}
+#toy-action-shoot.toy-unavailable{opacity:.62}
+#toy-stick{
+  background:radial-gradient(circle,rgba(31,86,67,.37),rgba(8,36,29,.57));
+  border:1.5px solid rgba(220,255,228,.38);
+  box-shadow:inset 0 0 16px rgba(0,0,0,.25),0 4px 16px rgba(0,0,0,.21)
+}
+#toy-stick-knob{
+  border:2px solid rgba(237,255,244,.76);
+  background:radial-gradient(circle at 30% 25%,#a4e0b8,#317b60 70%,#1c5144)
+}
+@media(max-width:360px){
+  html.toy-mobile #bars{width:53vw;padding:7px 8px}
+  html.toy-mobile #skillStatus{width:39vw;padding:8px 6px}
+  html.toy-mobile #bars .label{width:40px;font-size:10px}
+  html.toy-mobile #bestRow{font-size:9px}
+  html.toy-mobile #skillLabel{font-size:10px}
+}
+@media(max-height:470px) and (orientation:landscape){
+  html.toy-mobile{--toy-top-inset:calc(50px + env(safe-area-inset-top))}
+  html.toy-mobile.toy-touch{--toy-top-inset:calc(8px + env(safe-area-inset-top))}
+  html.toy-mobile #toast{top:calc(var(--toy-top-inset) + 65px)}
+  html.toy-mobile #toy-help-button{top:calc(var(--toy-top-inset) + 70px)}
+  html.toy-mobile #toy-help-panel{top:calc(var(--toy-top-inset) + 98px)}
+}
+
 </style>
 </head>
 <body>
@@ -212,10 +315,10 @@ html.toy-mobile #crosshair{width:16px;height:16px;margin:-8px 0 0 -8px}
 <div id="toy-controls" aria-label="移动端游戏操作">
   <div id="toy-stick" aria-label="方向摇杆"><div id="toy-stick-knob"></div></div>
   <div id="toy-actions">
-    <button type="button" id="toy-action-rise" aria-label="上升或跳跃" data-toy-hold="ShiftLeft"><b>↑</b><span>上升</span></button>
-    <button type="button" id="toy-action-sink" aria-label="下降" data-toy-hold="ControlLeft"><b>↓</b><span>下降</span></button>
-    <button type="button" id="toy-action-fly" aria-label="起飞或降落"><b>✦</b><span>起飞</span></button>
-    <button type="button" id="toy-action-shoot" aria-label="飞行时发射"><b>●</b><span>发射</span></button>
+    <button type="button" id="toy-action-rise" aria-label="上升或跳跃" data-toy-hold="ShiftLeft"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4M6 10l6-6 6 6"/><path d="M5 20h14" opacity=".5"/></svg><span>上升</span></button>
+    <button type="button" id="toy-action-sink" aria-label="下降" data-toy-hold="ControlLeft"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M6 14l6 6 6-6"/><path d="M5 4h14" opacity=".5"/></svg><span>下降</span></button>
+    <button type="button" id="toy-action-fly" aria-label="起飞或降落"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16c4-1 6-4 9-9 3 5 5 8 9 9"/><path d="M12 8v11M9 16l3 3 3-3"/></svg><span>起飞</span></button>
+    <button type="button" id="toy-action-shoot" aria-label="飞行时发射"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>发射</span></button>
   </div>
   <button type="button" id="toy-help-button" aria-label="查看操作说明" aria-expanded="false">?</button>
   <div id="toy-help-panel" role="note"><strong>操作说明</strong>左下摇杆控制移动和飞行转向。<br>右侧按钮控制起飞、上升、下降及发射。<br>拖动场景旋转镜头，双指捏合缩放。<br>按住湿润草地中的蚯蚓，向外拖动即可拔出。<br>飞行时先点按场景瞄准，再按发射。</div>
@@ -306,6 +409,7 @@ let toyCameraReady = false; // defer camera access until scene and rig are initi
 function syncToyMobile(){
   TOY_MOBILE = detectToyMobile();
   document.documentElement.classList.toggle('toy-mobile', TOY_MOBILE);
+  document.documentElement.classList.toggle('toy-touch', (window.matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0) && TOY_MOBILE);
   if(toyCameraReady && camera && Rig){
     const portrait=TOY_MOBILE && innerHeight>innerWidth;
     camera.fov=portrait?55:60;
@@ -802,15 +906,15 @@ class UIManager {
   setBest(v){ this.bestNum.textContent = Math.floor(v); }
   setSkill(cd, cdMax, canFire, flying){
     if(!flying){
-      this.skillLabel.textContent = '发射 · 需要飞行状态';
+      this.skillLabel.textContent = TOY_MOBILE ? '未起飞' : '发射 · 需要飞行状态';
       this.skillBox.classList.add('dim');
       this.skillFill.style.width = '0%';
     }else if(cd > 0){
-      this.skillLabel.textContent = `发射冷却 · ${cd.toFixed(1)}s`;
+      this.skillLabel.textContent = TOY_MOBILE ? `冷却 ${cd.toFixed(1)}s` : `发射冷却 · ${cd.toFixed(1)}s`;
       this.skillBox.classList.remove('dim');
       this.skillFill.style.width = (100 - cd / cdMax * 100) + '%';
     }else{
-      this.skillLabel.textContent = '发射 · 就绪';
+      this.skillLabel.textContent = TOY_MOBILE ? '可发射' : '发射 · 就绪';
       this.skillBox.classList.remove('dim');
       this.skillFill.style.width = '100%';
     }
