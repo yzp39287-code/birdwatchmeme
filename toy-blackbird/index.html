@@ -302,10 +302,11 @@ function detectToyMobile(){
     || window.innerWidth <= 720;
 }
 let TOY_MOBILE = detectToyMobile();
+let toyCameraReady = false; // defer camera access until scene and rig are initialized
 function syncToyMobile(){
   TOY_MOBILE = detectToyMobile();
   document.documentElement.classList.toggle('toy-mobile', TOY_MOBILE);
-  if(typeof camera!=='undefined' && camera && typeof Rig!=='undefined' && Rig){
+  if(toyCameraReady && camera && Rig){
     const portrait=TOY_MOBILE && innerHeight>innerWidth;
     camera.fov=portrait?55:60;
     camera.updateProjectionMatrix();
@@ -2213,6 +2214,7 @@ async function main(){
   Peds   = new PedestrianSystem(scene, MODELS.human);
   Projectiles = new ProjectileSystem(scene);
   Game   = new GameController();
+  toyCameraReady = true;
   syncToyMobile(); // apply portrait framing after CameraRig initialization
 
   window.__gameRef = { game: Game, bird: Bird, peds: Peds, worms: Worms, projectiles: Projectiles, world: World, camera, scene };
