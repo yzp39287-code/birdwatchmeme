@@ -105,12 +105,13 @@ html.toy-mobile .screen .sub{font-size:12px;text-align:center;margin-bottom:13px
 html.toy-mobile #startScreen .ctl{display:none}
 html.toy-mobile #toy-guide{display:block;max-width:90vw;padding:12px 16px;margin:0 auto 12px;font-size:13px;line-height:1.8;border-radius:12px;background:#ffffff16;color:#d9eee5}
 html.toy-mobile .screen button{min-height:46px;min-width:160px}
-html.toy-mobile #bars{top:calc(8px + env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));min-width:0;width:min(52vw,216px);padding:7px 8px;gap:5px}
+html.toy-mobile #bars{top:calc(150px + env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));min-width:0;width:min(52vw,216px);padding:7px 8px;gap:5px}
 html.toy-mobile #bars .label{font-size:11px;width:45px}
 html.toy-mobile #bars .bar{height:9px}
 html.toy-mobile #bars .num{font-size:11px;width:25px}
 html.toy-mobile #bestRow{font-size:10px}
 html.toy-mobile #hint{display:none}
+html.toy-mobile #toy-aim-help{opacity:.83;max-width:90vw;text-align:center;white-space:normal;pointer-events:none}
 html.toy-mobile #skillStatus{left:auto;right:max(8px,env(safe-area-inset-right));bottom:calc(161px + env(safe-area-inset-bottom));transform:none;font-size:10px;padding:5px 7px}
 html.toy-mobile #skillStatus .bar{width:45px}
 @media (orientation:portrait){
@@ -119,14 +120,14 @@ html.toy-mobile #skillStatus .bar{width:45px}
   html.toy-mobile #toy-actions{grid-template-columns:57px 57px;gap:7px;right:max(7px,env(safe-area-inset-right))}
   html.toy-mobile #toy-actions button{width:57px;height:52px;font-size:12px}
   html.toy-mobile #skillStatus{bottom:calc(148px + env(safe-area-inset-bottom))}
-  html.toy-mobile #toy-aim-help{top:calc(100px + env(safe-area-inset-top));font-size:10px}
+  html.toy-mobile #toy-aim-help{top:calc(245px + env(safe-area-inset-top));font-size:10px}
 }
 @media (max-height:470px){
   html.toy-mobile #toy-stick{width:102px;height:102px}
   html.toy-mobile #toy-stick-knob{width:50px;height:50px;top:24px;left:24px}
   html.toy-mobile #toy-actions button{height:46px}
   html.toy-mobile #skillStatus{bottom:calc(130px + env(safe-area-inset-bottom))}
-  html.toy-mobile #toy-aim-help{top:45px}
+  html.toy-mobile #toy-aim-help{top:calc(120px + env(safe-area-inset-top))}
 }
 
 </style>
@@ -231,8 +232,20 @@ html.toy-mobile #skillStatus .bar{width:45px}
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-const TOY_MOBILE = new URLSearchParams(location.search).has('touch') || window.matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0;
-if(TOY_MOBILE) document.documentElement.classList.add('toy-mobile');
+// Toy's desktop "mobile preview" uses mouse input inside a narrow iframe.
+function detectToyMobile(){
+  return new URLSearchParams(location.search).has('touch')
+    || window.matchMedia('(pointer:coarse)').matches
+    || navigator.maxTouchPoints > 0
+    || window.innerWidth <= 720;
+}
+let TOY_MOBILE = detectToyMobile();
+function syncToyMobile(){
+  TOY_MOBILE = detectToyMobile();
+  document.documentElement.classList.toggle('toy-mobile', TOY_MOBILE);
+}
+syncToyMobile();
+window.addEventListener('resize', syncToyMobile);
 
 /* =====================================================================
  * §0 调试开关 —— 控制台实时可改（直接对属性赋值立即生效）
@@ -1852,7 +1865,7 @@ class GameController {
    Existing keyboard/mouse input remains available on PC.
 */
 function initToyControls(){
-  if(!TOY_MOBILE) return;
+  // Bind even in desktop preview: switching PC ↔ mobile resizes the iframe.
   const cv = renderer.domElement;
   const stick = document.getElementById('toy-stick');
   const knob = document.getElementById('toy-stick-knob');
@@ -1917,7 +1930,7 @@ function initToyControls(){
     return a.length>=2?Math.hypot(a[1].x-a[0].x,a[1].y-a[0].y):0;
   }
   cv.addEventListener('pointerdown',e=>{
-    if(e.pointerType==='mouse') return; // keep original PC bindings
+    if(!TOY_MOBILE) return; // keep original PC bindings on true desktop preview
     e.preventDefault();
     cv.setPointerCapture(e.pointerId);
     cameraTouches.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -1938,7 +1951,7 @@ function initToyControls(){
     }
   },{passive:false});
   cv.addEventListener('pointermove',e=>{
-    if(e.pointerType==='mouse')return;
+    if(!TOY_MOBILE)return;
     if(!cameraTouches.has(e.pointerId))return;
     e.preventDefault();
     const old=cameraTouches.get(e.pointerId);
@@ -1956,7 +1969,7 @@ function initToyControls(){
     // In worm mode, the original WormSystem.update() uses mouse coordinates.
   },{passive:false});
   function canvasEnd(e){
-    if(e.pointerType==='mouse'||!cameraTouches.has(e.pointerId))return;
+    if(!TOY_MOBILE||!cameraTouches.has(e.pointerId))return;
     e.preventDefault();
     cameraTouches.delete(e.pointerId);
     if(gesture?.mode==='worm'&&gesture.id===e.pointerId){
@@ -2012,6 +2025,7 @@ function bindInputs(){
     }
   });
   window.addEventListener('mouseup', e => {
+    if(TOY_MOBILE) return; // pointerup handles mobile and mouse-based mobile preview
     if(e.button === 0) Worms.endDrag();
     if(e.button === 2) Rig.orbiting = false;
   });
