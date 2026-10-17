@@ -1,0 +1,60 @@
+name: Build Blackbird Toy upload ZIP
+on:
+  push:
+    branches: [toy-blackbird-2026]
+    paths:
+      - 'toy-blackbird/index.html'
+      - 'toy-blackbird/vendor-three.cjs'
+      - '.github/workflows/bilibili-toy-blackbird.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          ref: toy-blackbird-2026
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download version-locked local 3D dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/blackbird-three" --no-save --no-audit --no-fund three@0.160.0
+          THREE_PACKAGE_DIR="$RUNNER_TEMP/blackbird-three/node_modules/three" node toy-blackbird/vendor-three.cjs
+      - name: Create Bilibili Toy ZIP with index.html at ZIP root
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          base=Path("toy-blackbird")
+          dest=base/"Blackbird_Bilibili_Toy_upload.zip"
+          files=[base/"index.html",*sorted((base/"vendor").rglob("*"))]
+          with ZipFile(dest,"w",ZIP_DEFLATED,compresslevel=9) as z:
+              for f in files:
+                  if f.is_file(): z.write(f,f.relative_to(base).as_posix())
+          print("ZIP:",dest, "size:",dest.stat().st_size)
+          assert dest.stat().st_size < 50*1024*1024, "Toy 50 MB upload cap exceeded"
+          with ZipFile(dest) as z:
+              assert 'index.html' in z.namelist()
+              assert 'vendor/build/three.module.js' in z.namelist()
+              assert 'vendor/examples/jsm/loaders/GLTFLoader.js' in z.namelist()
+              assert 'vendor/examples/jsm/exporters/GLTFExporter.js' in z.namelist()
+          PY
+      - name: Publish ready-to-upload package on isolated branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add toy-blackbird/vendor toy-blackbird/Blackbird_Bilibili_Toy_upload.zip
+          if ! git diff --cached --quiet; then
+            git commit -m "Build CDN-free Blackbird Bilibili Toy upload bundle"
+            git push origin HEAD:toy-blackbird-2026
+          else
+            echo "No changes to commit"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Blackbird_Bilibili_Toy_upload
+          path: toy-blackbird/Blackbird_Bilibili_Toy_upload.zip
