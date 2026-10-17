@@ -82,54 +82,115 @@
     z-index:20;color:#f0b0a0;font-size:16px;background:rgba(8,14,18,.92);text-align:center;
     line-height:2;padding:30px}
 
-/* Bilibili Toy mobile skin. Desktop appearance untouched. */
+/* =============== Bilibili Toy portrait UI v3 ===============
+   The host owns the top overlay and bottom tab bar.
+   All gameplay controls live in safe areas; desktop styles unchanged. */
 html,body{overscroll-behavior:none}
 canvas{touch-action:none;overscroll-behavior:none}
-#toy-controls{display:none;position:fixed;inset:0;pointer-events:none;z-index:9;color:#fff;font-size:13px;font-weight:700}
-#toy-controls button{font:inherit;color:#fff;border:1px solid rgba(255,255,255,.35);box-shadow:0 3px 15px rgba(0,0,0,.22);background:rgba(13,33,32,.70);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer}
-#toy-controls button:active,#toy-controls button.held{background:rgba(61,135,102,.88);transform:scale(.97)}
-#toy-stick{position:absolute;left:max(18px,env(safe-area-inset-left));bottom:calc(19px + env(safe-area-inset-bottom));width:132px;height:132px;pointer-events:auto;border:2px solid rgba(255,255,255,.25);border-radius:50%;touch-action:none;background:rgba(5,22,24,.4)}
-#toy-stick:after{content:'移动';position:absolute;left:0;right:0;top:-25px;text-align:center;color:#eef4f0;font-size:12px;text-shadow:0 2px 4px #000;pointer-events:none}
-#toy-stick-knob{width:62px;height:62px;position:absolute;top:33px;left:33px;border:2px solid rgba(255,255,255,.7);border-radius:50%;background:radial-gradient(circle at 32% 20%,rgba(169,232,192,.65),rgba(22,74,58,.92));box-shadow:0 3px 14px #0009;pointer-events:none;transform:translate3d(0,0,0)}
-#toy-actions{position:absolute;right:max(12px,env(safe-area-inset-right));bottom:calc(19px + env(safe-area-inset-bottom));display:grid;grid-template-columns:65px 65px;gap:10px;pointer-events:auto}
-#toy-actions button{width:65px;height:57px;border-radius:16px;padding:3px 0}
-#toy-actions button span{display:block;font-size:11px;font-weight:500;margin-top:2px}
-#toy-action-shoot{background:rgba(96,71,106,.78)!important}
-#toy-action-fly{background:rgba(50,98,116,.81)!important}
-#toy-aim-help{position:absolute;top:70px;left:50%;transform:translateX(-50%);padding:5px 11px;background:rgba(0,0,0,.42);border-radius:12px;white-space:nowrap;font-size:11px;font-weight:500;text-shadow:0 1px 2px #0009;pointer-events:none}
+#toy-controls{display:none;position:fixed;inset:0;pointer-events:none;z-index:9;
+  color:#f9fff8;font-family:system-ui,"Microsoft YaHei","PingFang SC",sans-serif;
+  font-size:13px;font-weight:600;--toy-gutter:16px;--toy-bottom:calc(20px + env(safe-area-inset-bottom))}
+#toy-controls button{font-family:inherit!important;font-weight:600!important;letter-spacing:0!important;
+  text-indent:0!important;line-height:1.1!important;text-shadow:none!important;
+  color:#fff;user-select:none;-webkit-user-select:none;touch-action:none;
+  border:1px solid rgba(255,255,255,.25);box-shadow:0 6px 15px rgba(2,17,13,.24);
+  -webkit-tap-highlight-color:transparent;cursor:pointer;pointer-events:auto}
+#toy-controls button:active,#toy-controls button.held{filter:brightness(1.15);transform:scale(.96)}
+#toy-stick{position:absolute;left:max(var(--toy-gutter),env(safe-area-inset-left));
+  bottom:var(--toy-bottom);width:124px;height:124px;pointer-events:auto;
+  border:2px solid rgba(242,255,245,.25);border-radius:50%;touch-action:none;
+  background:radial-gradient(circle,rgba(16,45,35,.40),rgba(10,35,28,.60));
+  box-shadow:inset 0 2px 16px rgba(0,0,0,.17)}
+#toy-stick:after{content:"移动";position:absolute;left:0;right:0;top:-21px;text-align:center;
+  color:#fff;font-size:12px;font-weight:700;text-shadow:0 1px 5px #1239;pointer-events:none}
+#toy-stick-knob{width:56px;height:56px;position:absolute;top:calc(50% - 28px);left:calc(50% - 28px);
+  border:2px solid rgba(255,255,255,.68);border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle at 30% 20%,#acd8b6,#316d55 75%);
+  box-shadow:0 3px 14px rgba(0,0,0,.35);transform:translate3d(0,0,0)}
+#toy-actions{position:absolute;right:max(var(--toy-gutter),env(safe-area-inset-right));
+  bottom:var(--toy-bottom);display:grid;grid-template-columns:62px 62px;
+  grid-template-rows:62px 62px;gap:10px;pointer-events:auto}
+#toy-actions button{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  width:62px;height:62px;min-width:0;min-height:0;margin:0;padding:4px!important;
+  border-radius:19px;background:rgba(17,47,40,.87);white-space:nowrap!important;
+  font-size:12px!important}
+#toy-actions button b{display:block;font-size:20px;line-height:22px;font-weight:600;letter-spacing:0}
+#toy-actions button span{display:block;font-size:11px!important;line-height:16px!important;
+  font-weight:600;letter-spacing:0!important;white-space:nowrap!important;margin:0}
+#toy-action-fly{background:rgba(25,99,127,.86)!important}
+#toy-action-shoot{background:rgba(99,68,118,.87)!important}
+#toy-action-shoot.toy-unavailable{opacity:.62}
+#toy-help-button{position:absolute;right:max(var(--toy-gutter),env(safe-area-inset-right));
+  bottom:calc(171px + env(safe-area-inset-bottom));width:30px;height:30px;
+  min-width:0;min-height:0;padding:0!important;border-radius:50%;font-size:16px!important;
+  background:rgba(12,37,31,.73);z-index:2}
+#toy-help-panel{display:none;position:absolute;right:max(var(--toy-gutter),env(safe-area-inset-right));
+  bottom:calc(210px + env(safe-area-inset-bottom));width:min(286px,calc(100vw - 35px));
+  padding:13px 14px;border:1px solid #effff544;border-radius:14px;
+  font-size:12px;font-weight:400;line-height:1.8;color:#e9ffed;
+  background:rgba(13,37,32,.95);box-shadow:0 8px 32px #001a1b66;pointer-events:auto}
+#toy-help-panel.open{display:block}
+#toy-help-panel strong{display:block;font-size:13px;margin-bottom:5px}
+#toy-aim-help{display:none}
 #toy-guide{display:none}
 html.toy-mobile #toy-controls{display:block}
-html.toy-mobile .screen{padding:14px 12px calc(25px + env(safe-area-inset-bottom));overflow-y:auto}
-html.toy-mobile .screen h1{font-size:clamp(23px,7vw,36px);letter-spacing:2px}
-html.toy-mobile .screen .sub{font-size:12px;text-align:center;margin-bottom:13px;letter-spacing:0}
+html.toy-mobile .screen{padding:25px 14px calc(28px + env(safe-area-inset-bottom));overflow-y:auto}
+html.toy-mobile .screen h1{font-size:clamp(25px,7vw,36px);letter-spacing:2px}
+html.toy-mobile .screen .sub{font-size:12px;text-align:center;margin-bottom:15px;letter-spacing:0}
 html.toy-mobile #startScreen .ctl{display:none}
-html.toy-mobile #toy-guide{display:block;max-width:90vw;padding:12px 16px;margin:0 auto 12px;font-size:13px;line-height:1.8;border-radius:12px;background:#ffffff16;color:#d9eee5}
-html.toy-mobile .screen button{min-height:46px;min-width:160px}
-html.toy-mobile #bars{top:calc(150px + env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));min-width:0;width:min(52vw,216px);padding:7px 8px;gap:5px}
-html.toy-mobile #bars .label{font-size:11px;width:45px}
-html.toy-mobile #bars .bar{height:9px}
-html.toy-mobile #bars .num{font-size:11px;width:25px}
-html.toy-mobile #bestRow{font-size:10px}
+html.toy-mobile #toy-guide{display:block;max-width:92vw;padding:14px 16px;margin:0 auto 16px;
+  font-size:13px;line-height:1.85;border-radius:12px;background:#ffffff13;color:#d9eee5}
+html.toy-mobile .screen button{min-height:46px;min-width:155px}
+html.toy-mobile #bars{top:calc(clamp(105px,16vh,140px) + env(safe-area-inset-top));
+  left:max(12px,env(safe-area-inset-left));width:min(55vw,218px);min-width:0;
+  background:rgba(15,38,31,.73);padding:9px 10px;gap:7px;border-radius:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:0 3px 12px rgba(0,0,0,.13)}
+html.toy-mobile #bars .barRow{gap:5px}
+html.toy-mobile #bars .label{font-size:11px;width:44px}
+html.toy-mobile #bars .bar{height:7px}
+html.toy-mobile #bars .num{font-size:11px;width:23px}
+html.toy-mobile #bestRow{font-size:10px;color:#d0e4d5}
 html.toy-mobile #hint{display:none}
-html.toy-mobile #toy-aim-help{opacity:.83;max-width:90vw;text-align:center;white-space:normal;pointer-events:none}
-html.toy-mobile #skillStatus{left:auto;right:max(8px,env(safe-area-inset-right));bottom:calc(161px + env(safe-area-inset-bottom));transform:none;font-size:10px;padding:5px 7px}
-html.toy-mobile #skillStatus .bar{width:45px}
+html.toy-mobile #skillStatus{left:auto;right:max(12px,env(safe-area-inset-right));
+  bottom:calc(175px + env(safe-area-inset-bottom));transform:none;
+  font-size:10px;padding:6px 8px;border-radius:9px;max-width:146px;gap:5px;
+  background:rgba(14,38,31,.72)}
+html.toy-mobile #skillStatus .bar{width:28px;min-width:24px}
+html.toy-mobile #toast{top:calc(clamp(183px,24vh,220px) + env(safe-area-inset-top));
+  max-width:85vw;text-align:center;white-space:normal;padding:8px 12px;font-size:12px}
+html.toy-mobile #crosshair{width:16px;height:16px;margin:-8px 0 0 -8px}
 @media (orientation:portrait){
-  html.toy-mobile #toy-stick{width:112px;height:112px;bottom:calc(24px + env(safe-area-inset-bottom));left:max(12px,env(safe-area-inset-left))}
-  html.toy-mobile #toy-stick-knob{width:56px;height:56px;left:26px;top:26px}
-  html.toy-mobile #toy-actions{grid-template-columns:57px 57px;gap:7px;right:max(7px,env(safe-area-inset-right))}
-  html.toy-mobile #toy-actions button{width:57px;height:52px;font-size:12px}
-  html.toy-mobile #skillStatus{bottom:calc(148px + env(safe-area-inset-bottom))}
-  html.toy-mobile #toy-aim-help{top:calc(245px + env(safe-area-inset-top));font-size:10px}
+  #toy-controls{--toy-gutter:12px;--toy-bottom:calc(20px + env(safe-area-inset-bottom))}
+  #toy-stick{width:112px;height:112px}
+  #toy-stick-knob{width:54px;height:54px;top:calc(50% - 27px);left:calc(50% - 27px)}
+  #toy-actions{grid-template-columns:57px 57px;grid-template-rows:57px 57px;gap:8px}
+  #toy-actions button{width:57px;height:57px;border-radius:16px}
+  #toy-help-button{bottom:calc(160px + env(safe-area-inset-bottom))}
+  #toy-help-panel{bottom:calc(200px + env(safe-area-inset-bottom))}
+  html.toy-mobile #skillStatus{bottom:calc(165px + env(safe-area-inset-bottom));right:54px}
+}
+@media (max-width:340px){
+  #toy-controls{--toy-gutter:8px}
+  #toy-stick{width:100px;height:100px}
+  #toy-stick-knob{width:50px;height:50px;top:calc(50% - 25px);left:calc(50% - 25px)}
+  #toy-actions{grid-template-columns:54px 54px;grid-template-rows:54px 54px;gap:7px}
+  #toy-actions button{width:54px;height:54px}
+  html.toy-mobile #bars{width:60vw}
 }
 @media (max-height:470px){
-  html.toy-mobile #toy-stick{width:102px;height:102px}
-  html.toy-mobile #toy-stick-knob{width:50px;height:50px;top:24px;left:24px}
-  html.toy-mobile #toy-actions button{height:46px}
-  html.toy-mobile #skillStatus{bottom:calc(130px + env(safe-area-inset-bottom))}
-  html.toy-mobile #toy-aim-help{top:calc(120px + env(safe-area-inset-top))}
+  #toy-controls{--toy-bottom:calc(8px + env(safe-area-inset-bottom))}
+  #toy-stick{width:94px;height:94px}
+  #toy-stick-knob{width:48px;height:48px;top:calc(50% - 24px);left:calc(50% - 24px)}
+  #toy-actions{grid-template-columns:51px 51px;grid-template-rows:47px 47px;gap:7px}
+  #toy-actions button{width:51px;height:47px}
+  #toy-actions button b{font-size:16px;line-height:16px}
+  #toy-actions button span{font-size:10px!important}
+  html.toy-mobile #bars{top:calc(76px + env(safe-area-inset-top));width:min(205px,40vw)}
+  #toy-help-button{bottom:calc(116px + env(safe-area-inset-bottom))}
+  #toy-help-panel{bottom:calc(145px + env(safe-area-inset-bottom))}
+  html.toy-mobile #skillStatus{bottom:calc(118px + env(safe-area-inset-bottom))}
 }
-
 </style>
 </head>
 <body>
@@ -151,12 +212,13 @@ html.toy-mobile #skillStatus .bar{width:45px}
 <div id="toy-controls" aria-label="移动端游戏操作">
   <div id="toy-stick" aria-label="方向摇杆"><div id="toy-stick-knob"></div></div>
   <div id="toy-actions">
-    <button type="button" id="toy-action-rise" data-toy-hold="ShiftLeft">↑<span>上升 / 跳</span></button>
-    <button type="button" id="toy-action-sink" data-toy-hold="ControlLeft">↓<span>下降</span></button>
-    <button type="button" id="toy-action-fly">✦<span>起飞 / 降落</span></button>
-    <button type="button" id="toy-action-shoot">●<span>发射</span></button>
+    <button type="button" id="toy-action-rise" aria-label="上升或跳跃" data-toy-hold="ShiftLeft"><b>↑</b><span>上升</span></button>
+    <button type="button" id="toy-action-sink" aria-label="下降" data-toy-hold="ControlLeft"><b>↓</b><span>下降</span></button>
+    <button type="button" id="toy-action-fly" aria-label="起飞或降落"><b>✦</b><span>起飞</span></button>
+    <button type="button" id="toy-action-shoot" aria-label="飞行时发射"><b>●</b><span>发射</span></button>
   </div>
-  <div id="toy-aim-help">拖动空白处转镜头 · 按住蚯蚓向外拖动 · 飞行时点击屏幕瞄准</div>
+  <button type="button" id="toy-help-button" aria-label="查看操作说明" aria-expanded="false">?</button>
+  <div id="toy-help-panel" role="note"><strong>操作说明</strong>左下摇杆控制移动和飞行转向。<br>右侧按钮控制起飞、上升、下降及发射。<br>拖动场景旋转镜头，双指捏合缩放。<br>按住湿润草地中的蚯蚓，向外拖动即可拔出。<br>飞行时先点按场景瞄准，再按发射。</div>
 </div>
 <div id="crosshair"></div>
 <div id="wormBar"><div id="wormFill"></div></div>
@@ -243,6 +305,13 @@ let TOY_MOBILE = detectToyMobile();
 function syncToyMobile(){
   TOY_MOBILE = detectToyMobile();
   document.documentElement.classList.toggle('toy-mobile', TOY_MOBILE);
+  if(typeof camera!=='undefined' && camera && typeof Rig!=='undefined' && Rig){
+    const portrait=TOY_MOBILE && innerHeight>innerWidth;
+    camera.fov=portrait?55:60;
+    camera.updateProjectionMatrix();
+    if(portrait && !Rig._toyPortraitAdjusted){Rig.dist=Math.min(Rig.dist,3.55);Rig._toyPortraitAdjusted=true;}
+    if(!portrait)Rig._toyPortraitAdjusted=false;
+  }
 }
 syncToyMobile();
 window.addEventListener('resize', syncToyMobile);
@@ -1922,6 +1991,13 @@ function initToyControls(){
     for(const event of ['pointerup','pointercancel','lostpointercapture'])btn.addEventListener(event,release);
   }
   const fly=document.getElementById('toy-action-fly'), shoot=document.getElementById('toy-action-shoot');
+  const help=document.getElementById('toy-help-button');
+  const panel=document.getElementById('toy-help-panel');
+  help.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    const open=panel.classList.toggle('open');
+    help.setAttribute('aria-expanded',String(open));
+  });
   fly.addEventListener('pointerdown',e=>{e.preventDefault();if(Game.state==='playing')Bird.onSpace();});
   shoot.addEventListener('pointerdown',e=>{e.preventDefault();if(Game.state==='playing')Projectiles.fire();});
   function centerAim(e){setMouseXY(e.clientX,e.clientY);}
@@ -2080,6 +2156,12 @@ function tick(){
   /* HUD */
   UI.setBars(Game.growth, Game.scare, DBG.scareMax);
   UI.setSkill(Game.skillCd, Game.lastCdMax, Game.skillCd <= 0, Bird.isFlying);
+  if(TOY_MOBILE){
+    const flyLabel=document.querySelector('#toy-action-fly span');
+    if(flyLabel)flyLabel.textContent=Bird.isFlying?'降落':'起飞';
+    const shoot=document.getElementById('toy-action-shoot');
+    if(shoot)shoot.classList.toggle('toy-unavailable',!Bird.isFlying||Game.skillCd>0);
+  }
   UI.crosshair(mouse.px, mouse.py, Game.state === 'playing' && Bird.isFlying);
 
   if(DBG.showStatsOverlay){
@@ -2131,6 +2213,7 @@ async function main(){
   Peds   = new PedestrianSystem(scene, MODELS.human);
   Projectiles = new ProjectileSystem(scene);
   Game   = new GameController();
+  syncToyMobile(); // apply portrait framing after CameraRig initialization
 
   window.__gameRef = { game: Game, bird: Bird, peds: Peds, worms: Worms, projectiles: Projectiles, world: World, camera, scene };
 
